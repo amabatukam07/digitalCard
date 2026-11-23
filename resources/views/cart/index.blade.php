@@ -7,13 +7,13 @@
         $balance = (float) ($card->balance ?? 0);
         $hasBalance = $card && $balance >= $total;
 
-        $freeShippingMin = (float) config('digitalcard.free_shipping_min_total', 299.00);
+        $freeShippingMin = (float) ($loyaltySummary['free_shipping_min'] ?? config('digitalcard.free_shipping_min_total', 299.00));
         $merchandiseNet = max(0.0, round(($subtotalAll ?? 0) - ($discountAmount ?? 0), 2));
-        $missingForFreeShipping = max(0.0, round($freeShippingMin - $merchandiseNet, 2));
-        $freeShippingProgress = min(100, (int) round(($merchandiseNet / max(1.0, $freeShippingMin)) * 100));
+        $missingForFreeShipping = $freeShippingMin <= 0 ? 0.0 : max(0.0, round($freeShippingMin - $merchandiseNet, 2));
+        $freeShippingProgress = $freeShippingMin <= 0 ? 100 : min(100, (int) round(($merchandiseNet / $freeShippingMin) * 100));
     @endphp
 
-    <div class="max-w-[1440px] mx-auto py-6 px-4 sm:px-6 lg:px-8 space-y-6">
+    <div class="app-shell py-6 space-y-6">
         <div class="flex flex-col sm:flex-row sm:items-end justify-between gap-4 pb-5 border-b border-line">
             <div>
                 <p class="text-xs font-medium text-slate-500">1 Carrinho — 2 Entrega — 3 Pagamento</p>
@@ -234,6 +234,18 @@
                                 <span class="font-mono tabular-nums">+ R$ {{ number_format($cashbackTotal, 2, ',', '.') }}</span>
                             </div>
 
+                            @if(isset($loyaltySummary) && (($loyaltySummary['bonus_cashback_percent'] ?? 0) > 0 || ($loyaltySummary['free_shipping_min_cents'] ?? 29900) < 29900))
+                                <div class="rounded-md border border-accent-200 bg-accent-50 px-3 py-2 flex items-center justify-between gap-2 text-[11px] text-accent-950">
+                                    <span class="inline-flex items-center gap-1.5 font-semibold">
+                                        <x-icon name="crown" class="size-3.5 text-accent-600" />
+                                        <span>Clube {{ $loyaltySummary['tier_label'] }} ativo</span>
+                                    </span>
+                                    <span class="font-medium tabular-nums">
+                                        +{{ rtrim(rtrim(number_format((float) $loyaltySummary['bonus_cashback_percent'], 2, ',', '.'), '0'), ',') }}% CB · Frete R$ {{ number_format((float) $loyaltySummary['free_shipping_min'], 0, ',', '.') }}
+                                    </span>
+                                </div>
+                            @endif
+
                             <div class="flex items-baseline justify-between border-t border-line pt-3 text-sm font-semibold text-ink">
                                 <span>Total</span>
                                 <span class="font-mono tabular-nums text-2xl text-ink">R$ {{ number_format($total, 2, ',', '.') }}</span>
@@ -322,7 +334,7 @@
                         @endauth
 
                         <p class="text-center text-xs text-slate-500 pt-1">
-                            Compra simulada. O pedido entra como “Solicitado”.
+                            Pagamento protegido por PIN de 4 dígitos com estorno integral em caso de cancelamento.
                         </p>
                     </div>
                 </div>

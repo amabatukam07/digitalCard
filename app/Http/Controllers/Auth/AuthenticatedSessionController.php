@@ -39,7 +39,7 @@ class AuthenticatedSessionController extends Controller
 
         CartController::mergeSessionIntoDatabase($request);
 
-        if ($request->user()?->is_admin && $request->input('user_type') === 'administrador') {
+        if ($request->user()?->hasAdminAccess() && $request->input('user_type') === 'administrador') {
             return redirect()->intended(route('admin.recharges.index'));
         }
 

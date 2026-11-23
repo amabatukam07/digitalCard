@@ -7,18 +7,23 @@ use App\Models\AuditLog;
 use App\Models\CardTransaction;
 use App\Models\Recharge;
 use App\Models\VirtualCard;
+use App\Services\CartPricing;
+use App\Services\WalletLedgerService;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class SimulatedPixGateway implements PaymentGateway
 {
+    public function __construct(private readonly WalletLedgerService $ledger) {}
+
     public function createPixCharge(VirtualCard $card, float $amount): Recharge
     {
         $normalizedAmount = round($amount, 2);
         $txid = 'DCPX'.strtoupper(Str::random(21)); // 25 caracteres alfanuméricos padrão BACEN
         $payload = self::generateBrCode(
-            pixKey: (string) config('digitalcard.pix.key', 'simulacao-pix@digitalcard.edu.br'),
-            merchantName: (string) config('digitalcard.pix.merchant_name', 'DIGITALCARD ACADEMICO'),
+            pixKey: (string) config('digitalcard.pix.key', 'pix@digitalcard.com.br'),
+            merchantName: (string) config('digitalcard.pix.merchant_name', 'DIGITALCARD PAGAMENTOS'),
             merchantCity: (string) config('digitalcard.pix.merchant_city', 'MACEIO'),
             amount: $normalizedAmount,
             txid: $txid,
@@ -42,6 +47,8 @@ class SimulatedPixGateway implements PaymentGateway
             ['txid' => $txid, 'amount' => $normalizedAmount],
             $card->user_id
         );
+
+        Cache::forget('admin_pending_counts');
 
         return $recharge;
     }
@@ -68,24 +75,25 @@ class SimulatedPixGateway implements PaymentGateway
             }
 
             $card = VirtualCard::where('id', $recharge->virtual_card_id)->lockForUpdate()->firstOrFail();
-            $creditAmount = round((float) $recharge->amount, 2);
+            $creditCents = CartPricing::toCents((float) $recharge->amount);
+            $creditAmount = CartPricing::toDecimal($creditCents);
             $oldBalance = round((float) $card->balance, 2);
-            $newBalance = round($oldBalance + $creditAmount, 2);
 
-            $card->update(['balance' => $newBalance]);
+            $tx = $this->ledger->credit(
+                lockedCard: $card,
+                amountCents: $creditCents,
+                type: CardTransaction::TYPE_RECHARGE,
+                description: "Recarga PIX ({$txid})",
+                reference: $recharge,
+                idempotencyKey: "recharge:{$recharge->id}:pix",
+            );
 
-            CardTransaction::create([
-                'virtual_card_id' => $card->id,
-                'type' => CardTransaction::TYPE_RECHARGE,
-                'amount' => $creditAmount,
-                'balance_after' => $newBalance,
-                'description' => "Recarga PIX Simulada ({$txid})",
-            ]);
+            $newBalance = (float) $tx->balance_after;
 
             $recharge->update([
                 'status' => Recharge::STATUS_APPROVED,
                 'approved_amount' => $creditAmount,
-                'admin_notes' => 'Liquidação automática via Webhook PIX Simulado (Ambiente Acadêmico)',
+                'admin_notes' => 'Liquidação automática via Webhook PIX',
                 'reviewed_at' => now(),
             ]);
 
@@ -96,6 +104,8 @@ class SimulatedPixGateway implements PaymentGateway
                 ['status' => Recharge::STATUS_APPROVED, 'txid' => $txid, 'card_balance' => $newBalance],
                 $triggeredByUserId ?? $card->user_id
             );
+
+            Cache::forget('admin_pending_counts');
 
             return $recharge;
         });

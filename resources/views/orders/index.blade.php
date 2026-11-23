@@ -1,5 +1,5 @@
-<x-app-layout :metaTitle="'Meus Pedidos e Entregas'" :metaDescription="'Histórico de compras demonstrativas e acompanhamento de pedidos na DigitalCard.'">
-    <div class="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8 space-y-6"
+<x-app-layout :metaTitle="'Meus Pedidos e Entregas'" :metaDescription="'Histórico de compras e acompanhamento de pedidos e entregas na DigitalCard.'">
+    <div class="app-shell py-8 space-y-6"
          x-data="{ statusFilter: 'todos' }">
 
         <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-5 border-b border-line gap-4">
@@ -14,7 +14,7 @@
                     <button @click="statusFilter = 'todos'" type="button"
                             :class="statusFilter === 'todos' ? 'bg-ink text-paper' : 'text-slate-600 hover:text-ink'"
                             class="px-3 py-1.5 rounded-md transition">
-                        Todos ({{ $orders->count() }})
+                        Todos ({{ $orders->total() }})
                     </button>
                     <button @click="statusFilter = 'solicitado'" type="button"
                             :class="statusFilter === 'solicitado' ? 'bg-accent-500 text-paper' : 'text-slate-600 hover:text-ink'"
@@ -61,10 +61,18 @@
                             </div>
                         </div>
 
-                        <div class="flex items-center gap-3">
+                        <div class="flex flex-wrap items-center gap-2">
                             <span class="font-mono tabular-nums text-xs font-medium text-slate-500">
                                 #PED-{{ str_pad((string) $order->id, 6, '0', STR_PAD_LEFT) }}
                             </span>
+                            <form action="{{ route('orders.reorder', $order) }}" method="POST">
+                                @csrf
+                                <button type="submit"
+                                        class="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface hover:border-ink text-ink text-xs font-medium px-3 py-2 transition">
+                                    <x-icon name="repeat" class="size-3.5 text-slate-600" />
+                                    <span>Repetir pedido</span>
+                                </button>
+                            </form>
                             <a href="{{ route('orders.show', $order) }}"
                                class="bg-ink hover:bg-slate-800 text-paper text-xs font-semibold px-3.5 py-2 rounded-lg transition">
                                 Ver detalhes e rastreio
@@ -106,7 +114,7 @@
                                             <div class="min-w-0">
                                                 <a href="{{ $item->product ? route('catalog.product', $item->product->slug) : '#' }}"
                                                    class="font-medium text-ink hover:text-accent-600 block text-sm truncate">
-                                                    {{ $item->product->name ?? 'Produto' }}
+                                                    {{ $item->display_name }}
                                                 </a>
                                                 <span class="text-slate-500 text-xs">
                                                     Qtd: {{ $item->quantity }} un. × R$ {{ number_format((float) $item->unit_price, 2, ',', '.') }}
@@ -153,6 +161,10 @@
                     </a>
                 </div>
             @endforelse
+        </div>
+
+        <div class="pt-2">
+            {{ $orders->links() }}
         </div>
     </div>
 </x-app-layout>

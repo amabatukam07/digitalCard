@@ -2,7 +2,7 @@
     <div class="pb-5 border-b border-line">
         <x-eyebrow>Acesso DigitalCard</x-eyebrow>
         <h1 class="font-serif text-2xl text-ink mt-1">Entre na sua conta</h1>
-        <p class="text-xs text-slate-600 mt-1">Acesse seu cartão virtual e acompanhe seus pedidos demonstrativos.</p>
+        <p class="text-xs text-slate-600 mt-1">Acesse seu cartão virtual, saldo e acompanhe seus pedidos.</p>
     </div>
 
     <x-auth-session-status class="mb-4" :status="session('status')" />

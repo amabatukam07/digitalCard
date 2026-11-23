@@ -1,16 +1,29 @@
 <x-app-layout :metaTitle="'Favoritos (' . $products->count() . ')'" :metaDescription="'Produtos salvos na sua conta DigitalCard.'">
-    <div class="max-w-[1440px] mx-auto py-6 px-4 sm:px-6 lg:px-8 space-y-6">
+    <div class="app-shell py-6 space-y-6">
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-line">
             <div>
                 <x-eyebrow>Favoritos</x-eyebrow>
                 <h1 class="font-serif text-3xl text-ink mt-1">Lista de desejos ({{ $products->count() }})</h1>
                 <p class="text-xs sm:text-sm text-slate-600 mt-1">Produtos salvos para acompanhar preços e comprar com o saldo do cartão.</p>
             </div>
-            <a href="{{ route('catalog.index') }}"
-               class="inline-flex items-center gap-2 bg-ink hover:bg-slate-800 text-paper text-xs font-medium px-4 py-2.5 rounded-md transition">
-                <span>Ver catálogo</span>
-                <x-icon name="arrow-right" class="size-3.5" />
-            </a>
+            <div class="flex flex-wrap items-center gap-2.5">
+                @if($products->isNotEmpty())
+                    <form action="{{ route('wishlist.move-to-cart') }}" method="POST">
+                        @csrf
+                        <button type="submit"
+                                class="inline-flex items-center gap-2 rounded-md border border-line bg-surface hover:border-ink text-ink text-xs font-medium px-4 py-2.5 transition">
+                            <x-icon name="shopping-cart" class="size-3.5 text-money-600" />
+                            <span>Mover todos para o carrinho</span>
+                        </button>
+                    </form>
+                @endif
+
+                <a href="{{ route('catalog.index') }}"
+                   class="inline-flex items-center gap-2 bg-ink hover:bg-slate-800 text-paper text-xs font-medium px-4 py-2.5 rounded-md transition">
+                    <span>Ver catálogo</span>
+                    <x-icon name="arrow-right" class="size-3.5" />
+                </a>
+            </div>
         </div>
 
         @if($products->isEmpty())
@@ -25,7 +38,7 @@
                 </a>
             </div>
         @else
-            <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 xl:gap-5">
                 @foreach($products as $product)
                     <x-product-card :product="$product" :wishlistIds="$wishlistIds ?? []" :eager="$loop->index < 4" />
                 @endforeach

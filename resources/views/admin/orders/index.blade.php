@@ -1,5 +1,5 @@
 <x-admin-layout>
-    <div class="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8 space-y-8">
+    <div class="w-full max-w-[1720px] mx-auto py-4 sm:py-6 space-y-8">
         <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-line gap-4">
             <div>
                 <x-eyebrow>Backoffice • Logística e despacho</x-eyebrow>
@@ -23,22 +23,16 @@
             </div>
         @endif
 
-        @php
-            $pendingOrders = \App\Models\Order::where('status', \App\Models\Order::STATUS_REQUESTED)->count();
-            $deliveredOrders = \App\Models\Order::where('status', \App\Models\Order::STATUS_DELIVERED)->count();
-            $totalSales = \App\Models\Order::sum('total_amount');
-        @endphp
-
         <div class="grid grid-cols-1 divide-y sm:grid-cols-3 sm:divide-y-0 sm:divide-x divide-line rounded-xl border border-line bg-surface">
             <div class="p-5">
                 <div class="flex items-center justify-between text-slate-500">
-                    <span class="text-xs font-medium">Aguardando envio (Produto solicitado)</span>
+                    <span class="text-xs font-medium">Pedidos em aberto</span>
                     <x-icon name="clock" class="size-4 text-accent-600" />
                 </div>
                 <div class="flex items-baseline justify-between mt-2">
-                    <span class="font-mono tabular-nums text-2xl font-semibold text-ink">{{ $pendingOrders }}</span>
+                    <span class="font-mono tabular-nums text-2xl font-semibold text-ink">{{ $orderStats['pendingCount'] }}</span>
                     <span class="text-xs font-medium text-accent-800 bg-accent-50 px-2 py-0.5 rounded border border-accent-200">
-                        Pendente despacho
+                        Em andamento
                     </span>
                 </div>
             </div>
@@ -49,7 +43,7 @@
                     <x-icon name="circle-check" class="size-4 text-money-600" />
                 </div>
                 <div class="flex items-baseline justify-between mt-2">
-                    <span class="font-mono tabular-nums text-2xl font-semibold text-ink">{{ $deliveredOrders }}</span>
+                    <span class="font-mono tabular-nums text-2xl font-semibold text-ink">{{ $orderStats['deliveredCount'] }}</span>
                     <span class="text-xs font-medium text-money-700 bg-money-50 px-2 py-0.5 rounded border border-money-200">
                         Entregues
                     </span>
@@ -58,24 +52,45 @@
 
             <div class="p-5">
                 <div class="flex items-center justify-between text-slate-500">
-                    <span class="text-xs font-medium">Faturamento total em cartão</span>
+                    <span class="text-xs font-medium">Faturamento líquido em cartão</span>
                     <x-icon name="receipt" class="size-4" />
                 </div>
                 <div class="flex items-baseline justify-between mt-2">
                     <span class="font-mono tabular-nums text-2xl font-semibold text-money-700 whitespace-nowrap">
-                        R$ {{ number_format($totalSales, 2, ',', '.') }}
+                        R$ {{ number_format($orderStats['netSales'], 2, ',', '.') }}
                     </span>
-                    <span class="text-xs text-slate-500">100% liquidado</span>
+                    <span class="text-xs text-slate-500">Exclui cancelados/devolvidos</span>
                 </div>
             </div>
         </div>
 
         <div class="bg-surface rounded-xl border border-line overflow-hidden">
-            <div class="p-6 border-b border-line flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div class="p-6 border-b border-line flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                 <div>
                     <h3 class="font-semibold text-ink text-base">Histórico completo de pedidos</h3>
-                    <p class="text-xs text-slate-500">Quando a mercadoria chegar ao cliente, confirme clicando em "Entregar".</p>
+                    <p class="text-xs text-slate-500">Avance etapas no detalhe do pedido ou confirme a entrega diretamente para liberar o cashback.</p>
                 </div>
+
+                <form action="{{ route('admin.orders.index') }}" method="GET" class="flex flex-wrap items-center gap-2 text-xs">
+                    <input type="text" name="q" value="{{ request('q') }}" placeholder="Pedido, cliente ou rastreio..."
+                           class="rounded-lg border-line px-3 py-2 text-xs w-52">
+                    <select name="status" class="rounded-lg border-line px-3 py-2 text-xs">
+                        <option value="">Todos os status</option>
+                        @foreach(\App\Enums\OrderStatus::cases() as $statusCase)
+                            <option value="{{ $statusCase->value }}" {{ request('status') === $statusCase->value ? 'selected' : '' }}>
+                                {{ $statusCase->label() }}
+                            </option>
+                        @endforeach
+                    </select>
+                    <button type="submit" class="rounded-lg bg-ink hover:bg-slate-800 px-3.5 py-2 text-xs font-semibold text-paper transition">
+                        Filtrar
+                    </button>
+                    @if(request()->hasAny(['q', 'status']))
+                        <a href="{{ route('admin.orders.index') }}" class="rounded-lg border border-line px-3 py-2 text-xs text-slate-600 hover:text-ink">
+                            Limpar
+                        </a>
+                    @endif
+                </form>
             </div>
 
             <div class="overflow-x-auto">
@@ -113,18 +128,19 @@
                                     {{ $order->shipping_address }}
                                 </td>
                                 <td class="py-4 px-6">
-                                    @if($order->status === 'Produto solicitado')
-                                        <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded text-xs font-medium bg-accent-50 text-accent-900 border border-accent-200 whitespace-nowrap">
-                                            <span class="size-1.5 rounded-full bg-accent-500"></span>
-                                            Produto solicitado
-                                        </span>
-                                    @elseif($order->status === 'Produto entregue')
+                                    @if($order->status === \App\Models\Order::STATUS_DELIVERED)
                                         <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded text-xs font-medium bg-money-50 text-money-900 border border-money-200 whitespace-nowrap">
                                             <span class="size-1.5 rounded-full bg-money-500"></span>
-                                            Produto entregue
+                                            {{ $order->status }}
+                                        </span>
+                                    @elseif(in_array($order->status, [\App\Models\Order::STATUS_CANCELLED, \App\Models\Order::STATUS_RETURNED], true))
+                                        <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded text-xs font-medium bg-danger-50 text-danger-800 border border-danger-200 whitespace-nowrap">
+                                            <span class="size-1.5 rounded-full bg-danger-500"></span>
+                                            {{ $order->status }}
                                         </span>
                                     @else
-                                        <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded text-xs font-medium bg-paper text-slate-700 border border-line whitespace-nowrap">
+                                        <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded text-xs font-medium bg-accent-50 text-accent-900 border border-accent-200 whitespace-nowrap">
+                                            <span class="size-1.5 rounded-full bg-accent-500"></span>
                                             {{ $order->status }}
                                         </span>
                                     @endif
@@ -136,7 +152,7 @@
                                             Detalhes
                                         </a>
 
-                                        @if($order->status === 'Produto solicitado')
+                                        @if($order->statusEnum()->isOpen())
                                             <form action="{{ route('admin.orders.deliver', $order) }}" method="POST">
                                                 @csrf
                                                 @method('PATCH')
@@ -152,7 +168,7 @@
                         @empty
                             <tr>
                                 <td colspan="7" class="py-12 text-center text-slate-500">
-                                    Nenhum pedido realizado até o momento.
+                                    Nenhum pedido encontrado com os filtros aplicados.
                                 </td>
                             </tr>
                         @endforelse

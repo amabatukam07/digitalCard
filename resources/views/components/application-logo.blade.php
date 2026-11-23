@@ -9,7 +9,7 @@
             DigitalCard
         </span>
         <span class="text-xs font-medium {{ $dark ? 'text-slate-300' : 'text-slate-600' }} mt-0.5">
-            Loja universitária com cartão virtual
+            Cartão virtual &amp; cashback
         </span>
     </div>
 </div>

@@ -1,5 +1,5 @@
 <x-admin-layout>
-    <div class="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8 space-y-8"
+    <div class="w-full max-w-[1720px] mx-auto py-4 sm:py-6 space-y-8"
          x-data="{
             previewModalOpen: false,
             previewUrl: '',
@@ -62,11 +62,6 @@
                 </ul>
             </div>
         @endif
-
-        @php
-            $pendingTotal = \App\Models\Recharge::where('status', 'pendente')->sum('amount');
-            $approvedTotal = \App\Models\Recharge::where('status', 'aprovado')->sum('amount');
-        @endphp
 
         <div class="grid grid-cols-1 divide-y sm:grid-cols-3 sm:divide-y-0 sm:divide-x divide-line rounded-xl border border-line bg-surface">
             <div class="p-5">
@@ -137,6 +132,15 @@
                     </span>
                 </a>
 
+                <a href="{{ route('admin.recharges.index', ['tab' => 'expirado']) }}"
+                   class="pb-3.5 px-3.5 text-xs font-medium transition-all border-b-2 flex items-center gap-2 whitespace-nowrap {{ $currentTab === 'expirado' ? 'border-slate-600 text-ink font-semibold' : 'border-transparent text-slate-500 hover:text-ink' }}">
+                    <span class="size-2 rounded-full bg-slate-400"></span>
+                    <span>Expiradas</span>
+                    <span class="px-2 py-0.5 rounded text-xs font-mono bg-paper-dim text-slate-700">
+                        {{ $counts['expirado'] ?? 0 }}
+                    </span>
+                </a>
+
                 <a href="{{ route('admin.recharges.index', ['tab' => 'todos']) }}"
                    class="pb-3.5 px-3.5 text-xs font-medium transition-all border-b-2 flex items-center gap-2 whitespace-nowrap {{ $currentTab === 'todos' ? 'border-ink text-ink font-semibold' : 'border-transparent text-slate-500 hover:text-ink' }}">
                     <span>Todas as recargas</span>
@@ -201,12 +205,18 @@
                                 </td>
 
                                 <td class="py-4 px-6">
-                                    <button @click="openReceipt('{{ route('recharges.receipt', $recharge) }}', '{{ str_ends_with(strtolower($recharge->receipt_path), '.pdf') ? 'pdf' : 'image' }}')"
-                                            type="button"
-                                            class="inline-flex items-center gap-1.5 text-xs font-medium text-ink bg-surface hover:bg-paper-dim px-3.5 py-1.5 rounded-lg transition border border-line">
-                                        <x-icon name="eye" class="size-4 text-slate-500" />
-                                        <span>Inspecionar comprovante</span>
-                                    </button>
+                                    @if(! empty($recharge->receipt_path))
+                                        <button @click="openReceipt(@js(route('recharges.receipt', $recharge)), @js(str_ends_with(strtolower($recharge->receipt_path), '.pdf') ? 'pdf' : 'image'))"
+                                                type="button"
+                                                class="inline-flex items-center gap-1.5 text-xs font-medium text-ink bg-surface hover:bg-paper-dim px-3.5 py-1.5 rounded-lg transition border border-line">
+                                            <x-icon name="eye" class="size-4 text-slate-500" />
+                                            <span>Inspecionar comprovante</span>
+                                        </button>
+                                    @else
+                                        <span class="inline-flex items-center gap-1.5 rounded-md border border-line bg-paper px-2.5 py-1 font-mono text-xs text-slate-600">
+                                            PIX {{ $recharge->txid ?? 'Dinâmico' }}
+                                        </span>
+                                    @endif
                                 </td>
 
                                 <td class="py-4 px-6">
@@ -228,6 +238,11 @@
                                                 Obs: {{ $recharge->admin_notes }}
                                             </span>
                                         @endif
+                                    @elseif ($recharge->status === 'expirado')
+                                        <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded text-xs font-medium bg-paper text-slate-600 border border-line">
+                                            <span class="size-1.5 rounded-full bg-slate-400"></span>
+                                            Expirado
+                                        </span>
                                     @else
                                         <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded text-xs font-medium bg-accent-50 text-accent-900 border border-accent-200">
                                             <span class="size-1.5 rounded-full bg-accent-500"></span>
@@ -258,7 +273,7 @@
                                                     </button>
                                                 </form>
 
-                                                <button @click="openReject('{{ route('admin.recharges.reject', $recharge) }}', '{{ addslashes($user->name ?? 'Cliente') }}', '{{ number_format($requestedAmount, 2, ',', '.') }}')"
+                                                <button @click="openReject(@js(route('admin.recharges.reject', $recharge)), @js($user->name ?? 'Cliente'), @js(number_format($requestedAmount, 2, ',', '.')))"
                                                         type="button"
                                                         class="bg-surface hover:bg-danger-50 text-danger-700 font-semibold text-xs px-3 py-2 rounded-lg transition border border-danger-200">
                                                     Recusar

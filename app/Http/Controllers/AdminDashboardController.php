@@ -2,18 +2,27 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\UserRole;
 use App\Models\AuditLog;
+use App\Models\CardTransaction;
 use App\Models\Category;
 use App\Models\Coupon;
+use App\Models\GiftCard;
 use App\Models\Order;
+use App\Models\OrderItem;
+use App\Models\PriceAlert;
 use App\Models\Product;
+use App\Models\ProductQuestion;
 use App\Models\Recharge;
+use App\Models\SavingsGoal;
 use App\Models\User;
 use App\Models\VirtualCard;
+use App\Services\PriceAlertService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -55,6 +64,59 @@ class AdminDashboardController extends Controller
         $users = User::with('virtualCard')->latest()->limit(20)->get();
         $auditLogs = AuditLog::with('user')->latest('created_at')->limit(20)->get();
 
+        $lowStockProducts = Product::query()
+            ->with('category')
+            ->where('is_active', true)
+            ->where('stock', '<=', 5)
+            ->orderBy('stock')
+            ->orderBy('name')
+            ->limit(8)
+            ->get();
+
+        $pendingQuestions = ProductQuestion::query()
+            ->with(['product', 'user'])
+            ->whereNull('answer')
+            ->latest()
+            ->limit(10)
+            ->get();
+
+        $fintechMetrics = [
+            'goals_total' => (float) SavingsGoal::sum('current_amount'),
+            'goals_count' => SavingsGoal::count(),
+            'active_gift_cards_total' => (float) GiftCard::where('status', GiftCard::STATUS_ACTIVE)->sum('remaining_amount'),
+            'active_gift_cards_count' => GiftCard::where('status', GiftCard::STATUS_ACTIVE)->count(),
+            'p2p_volume_total' => (float) abs((float) CardTransaction::where('type', CardTransaction::TYPE_TRANSFER_OUT)->sum('amount')),
+            'active_price_alerts_count' => PriceAlert::whereNull('notified_at')->count(),
+        ];
+
+        $topProducts = OrderItem::query()
+            ->selectRaw('product_id, MAX(product_name) as product_name, SUM(quantity) as total_units, SUM(quantity * unit_price) as total_revenue')
+            ->whereHas('order', fn ($q) => $q->whereNotIn('status', [Order::STATUS_CANCELLED, Order::STATUS_RETURNED]))
+            ->groupBy('product_id')
+            ->orderByDesc('total_units')
+            ->limit(5)
+            ->get();
+
+        $deptRevenueRaw = OrderItem::query()
+            ->join('orders', 'orders.id', '=', 'order_items.order_id')
+            ->join('products', 'products.id', '=', 'order_items.product_id')
+            ->join('categories', 'categories.id', '=', 'products.category_id')
+            ->leftJoin('categories as parent_cats', 'parent_cats.id', '=', 'categories.parent_id')
+            ->whereNotIn('orders.status', [Order::STATUS_CANCELLED, Order::STATUS_RETURNED])
+            ->selectRaw('COALESCE(parent_cats.name, categories.name) as department_name, SUM(order_items.quantity * order_items.unit_price) as revenue, SUM(order_items.quantity) as units')
+            ->groupByRaw('COALESCE(parent_cats.name, categories.name)')
+            ->orderByDesc('revenue')
+            ->limit(6)
+            ->get();
+
+        $maxDeptRevenue = max(1.0, (float) ($deptRevenueRaw->max('revenue') ?? 1.0));
+        $salesByDepartment = $deptRevenueRaw->map(fn ($row): array => [
+            'name' => (string) $row->department_name,
+            'revenue' => (float) $row->revenue,
+            'units' => (int) $row->units,
+            'percent' => (int) min(100, max(6, round(((float) $row->revenue / $maxDeptRevenue) * 100))),
+        ]);
+
         return view('admin.dashboard', compact(
             'totalBalance',
             'totalCashback',
@@ -70,6 +132,11 @@ class AdminDashboardController extends Controller
             'coupons',
             'users',
             'auditLogs',
+            'lowStockProducts',
+            'pendingQuestions',
+            'fintechMetrics',
+            'topProducts',
+            'salesByDepartment',
         ));
     }
 
@@ -78,6 +145,7 @@ class AdminDashboardController extends Controller
      */
     public function storeProduct(Request $request): RedirectResponse
     {
+        abort_unless((bool) $request->user()?->canManageCatalog(), 403);
         $maxCashback = (float) config('digitalcard.max_cashback_percent', 15.0);
 
         $validated = $request->validate([
@@ -139,6 +207,7 @@ class AdminDashboardController extends Controller
      */
     public function updateProduct(Request $request, Product $product): RedirectResponse
     {
+        abort_unless((bool) $request->user()?->canManageCatalog(), 403);
         $maxCashback = (float) config('digitalcard.max_cashback_percent', 15.0);
 
         $validated = $request->validate([
@@ -168,10 +237,14 @@ class AdminDashboardController extends Controller
 
         if ($request->boolean('clear_compare_at_price') || ($request->has('compare_at_price') && empty($validated['compare_at_price']))) {
             $compareAt = null;
-        } elseif (! empty($validated['compare_at_price'])) {
+        } elseif (! empty($validated['compare_at_price']) && (float) $validated['compare_at_price'] > (float) $validated['price']) {
             $compareAt = (float) $validated['compare_at_price'];
+        } elseif (! empty($validated['compare_at_price'])) {
+            $compareAt = null;
         } else {
-            $compareAt = $product->compare_at_price;
+            $compareAt = $product->compare_at_price && (float) $product->compare_at_price > (float) $validated['price']
+                ? $product->compare_at_price
+                : null;
         }
 
         $product->update([
@@ -200,11 +273,14 @@ class AdminDashboardController extends Controller
             $request->user()->id
         );
 
+        app(PriceAlertService::class)->dispatchTriggeredAlerts($product->fresh());
+
         return back()->with('success', "Produto \"{$product->name}\" atualizado com sucesso.");
     }
 
     public function storeCategory(Request $request): RedirectResponse
     {
+        abort_unless((bool) $request->user()?->canManageCatalog(), 403);
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:120'],
             'parent_id' => ['nullable', 'exists:categories,id'],
@@ -235,6 +311,7 @@ class AdminDashboardController extends Controller
 
     public function updateCategory(Request $request, Category $category): RedirectResponse
     {
+        abort_unless((bool) $request->user()?->canManageCatalog(), 403);
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:120'],
             'icon' => ['nullable', 'string', 'max:20'],
@@ -258,6 +335,7 @@ class AdminDashboardController extends Controller
      */
     public function destroyCategory(Request $request, Category $category): RedirectResponse
     {
+        abort_unless((bool) $request->user()?->canManageCatalog(), 403);
         if ($category->products()->exists() || $category->children()->exists()) {
             throw ValidationException::withMessages([
                 'category' => 'Não é possível excluir uma categoria que possui produtos ou subcategorias vinculadas.',
@@ -275,6 +353,7 @@ class AdminDashboardController extends Controller
 
     public function toggleProduct(Request $request, Product $product): RedirectResponse
     {
+        abort_unless((bool) $request->user()?->canManageCatalog(), 403);
         $oldActive = (bool) $product->is_active;
         $product->update(['is_active' => ! $oldActive]);
 
@@ -296,6 +375,7 @@ class AdminDashboardController extends Controller
      */
     public function storeCoupon(Request $request): RedirectResponse
     {
+        abort_unless((bool) $request->user()?->canManageCatalog(), 403);
         $validated = $request->validate([
             'code' => ['required', 'string', 'max:50'],
             'label' => ['required', 'string', 'max:150'],
@@ -337,6 +417,7 @@ class AdminDashboardController extends Controller
 
     public function toggleCoupon(Request $request, Coupon $coupon): RedirectResponse
     {
+        abort_unless((bool) $request->user()?->canManageCatalog(), 403);
         $oldActive = (bool) $coupon->is_active;
         $coupon->update(['is_active' => ! $oldActive]);
 
@@ -354,29 +435,29 @@ class AdminDashboardController extends Controller
     }
 
     /**
-     * Exporta relatório de vendas por período em formato CSV.
+     * Exporta relatório de vendas por período em formato CSV com BOM UTF-8 e prevenção a Formula Injection.
      */
     public function exportSalesCsv(Request $request): StreamedResponse
     {
-        $orders = Order::with('user')
+        $query = Order::with('user')
             ->when($request->filled('from'), fn ($q) => $q->whereDate('created_at', '>=', $request->input('from')))
             ->when($request->filled('to'), fn ($q) => $q->whereDate('created_at', '<=', $request->input('to')))
-            ->orderByDesc('created_at')
-            ->get();
+            ->orderByDesc('created_at');
 
         $filename = 'relatorio-vendas-digitalcard-'.now()->format('Ymd-His').'.csv';
 
-        return response()->streamDownload(function () use ($orders) {
+        return response()->streamDownload(function () use ($query): void {
             $handle = fopen('php://output', 'w');
+            fwrite($handle, "\xEF\xBB\xBF");
             fputcsv($handle, ['Pedido', 'Data', 'Cliente', 'Email', 'Status', 'Subtotal (R$)', 'Desconto (R$)', 'Frete (R$)', 'Total Pago (R$)', 'Cashback (R$)'], ';');
 
-            foreach ($orders as $order) {
+            foreach ($query->cursor() as $order) {
                 fputcsv($handle, [
                     '#PED-'.str_pad((string) $order->id, 6, '0', STR_PAD_LEFT),
                     $order->created_at?->format('d/m/Y H:i'),
-                    $order->user?->name ?? 'N/A',
-                    $order->user?->email ?? 'N/A',
-                    $order->status,
+                    $this->sanitizeCsvCell($order->user?->name ?? 'N/A'),
+                    $this->sanitizeCsvCell($order->user?->email ?? 'N/A'),
+                    $this->sanitizeCsvCell($order->status),
                     number_format((float) $order->subtotal_amount, 2, ',', ''),
                     number_format((float) $order->discount_amount, 2, ',', ''),
                     number_format((float) $order->shipping_cost, 2, ',', ''),
@@ -389,5 +470,44 @@ class AdminDashboardController extends Controller
         }, $filename, [
             'Content-Type' => 'text/csv; charset=UTF-8',
         ]);
+    }
+
+    private function sanitizeCsvCell(?string $value): string
+    {
+        $text = (string) ($value ?? '');
+        if ($text !== '' && in_array($text[0], ['=', '+', '-', '@', "\t", "\r"], true)) {
+            return "'".$text;
+        }
+
+        return $text;
+    }
+
+    public function updateUserRole(Request $request, User $user): RedirectResponse
+    {
+        $actor = $request->user();
+        abort_unless((bool) $actor?->is_admin || $actor?->roleEnum() === UserRole::Admin, 403);
+        abort_if((int) $actor->id === (int) $user->id, 403, 'Não é permitido alterar o próprio papel administrativo.');
+
+        $validated = $request->validate([
+            'role' => ['required', Rule::enum(UserRole::class)],
+        ]);
+
+        $newRole = UserRole::from($validated['role']);
+        $oldRole = $user->roleEnum()->value;
+
+        $user->forceFill([
+            'role' => $newRole->value,
+            'is_admin' => $newRole === UserRole::Admin,
+        ])->save();
+
+        AuditLog::record(
+            'user.role_updated',
+            $user,
+            ['role' => $oldRole],
+            ['role' => $newRole->value],
+            $actor->id
+        );
+
+        return back()->with('success', "Papel de {$user->name} atualizado para {$newRole->label()}.");
     }
 }

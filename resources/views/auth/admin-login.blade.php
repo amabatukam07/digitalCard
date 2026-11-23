@@ -4,7 +4,7 @@
             <x-eyebrow>Acesso restrito — Backoffice</x-eyebrow>
             <h1 class="mt-1 font-serif text-2xl text-ink">Login Administrativo DigitalCard</h1>
             <p class="mt-1 text-xs text-slate-600">
-                Exclusivo para administradores do ambiente acadêmico DigitalCard.
+                Exclusivo para administradores e operadores autorizados da plataforma DigitalCard.
             </p>
         </div>
 

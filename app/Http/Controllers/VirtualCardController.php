@@ -2,16 +2,26 @@
 
 namespace App\Http\Controllers;
 
+use App\Actions\Wallet\TransferBalanceAction;
 use App\Contracts\PaymentGateway;
 use App\Models\AuditLog;
 use App\Models\CardTransaction;
+use App\Models\GiftCard;
+use App\Models\Product;
 use App\Models\Recharge;
 use App\Models\User;
 use App\Models\VirtualCard;
+use App\Notifications\RechargeReviewedNotification;
+use App\Services\CardPinGuard;
+use App\Services\CartPricing;
+use App\Services\LoyaltyTierService;
 use App\Services\Payment\PixQrCodeSvgGenerator;
+use App\Services\WalletLedgerService;
+use DomainException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Hash;
@@ -27,28 +37,103 @@ class VirtualCardController extends Controller
 
     public const PIN_DECAY_SECONDS = 900;
 
-    public function show(Request $request): View
-    {
-        $card = $this->cardFor($request->user());
-        $card->load([
-            'recharges' => fn ($query) => $query->latest(),
-            'transactions' => fn ($query) => $query->latest(),
-        ]);
+    public function __construct(private readonly WalletLedgerService $ledger) {}
 
-        $pendingRechargesTotal = $card->recharges
+    public function show(Request $request, LoyaltyTierService $loyaltyTierService): View
+    {
+        $user = $request->user();
+        $card = $this->cardFor($user);
+
+        $allowedTxTypes = [
+            CardTransaction::TYPE_RECHARGE,
+            CardTransaction::TYPE_PURCHASE,
+            CardTransaction::TYPE_CASHBACK,
+            CardTransaction::TYPE_REFUND,
+            CardTransaction::TYPE_CASHBACK_REVERSAL,
+            CardTransaction::TYPE_TRANSFER_OUT,
+            CardTransaction::TYPE_TRANSFER_IN,
+            CardTransaction::TYPE_GIFT_CARD_PURCHASE,
+            CardTransaction::TYPE_GIFT_CARD_REDEEM,
+            CardTransaction::TYPE_GOAL_DEPOSIT,
+            CardTransaction::TYPE_GOAL_WITHDRAW,
+        ];
+        $selectedTxType = in_array($request->input('tx_type'), $allowedTxTypes, true)
+            ? (string) $request->input('tx_type')
+            : null;
+
+        $transactions = $card->transactions()
+            ->when($selectedTxType !== null, fn ($q) => $q->where('type', $selectedTxType))
+            ->latest()
+            ->paginate(15, ['*'], 'tx_page')
+            ->withQueryString();
+
+        $recharges = $card->recharges()
+            ->latest()
+            ->paginate(10, ['*'], 'rec_page')
+            ->withQueryString();
+
+        $pendingRechargesTotal = (float) $card->recharges()
             ->where('status', Recharge::STATUS_PENDING)
             ->sum('amount');
 
-        $activePixCharge = $card->recharges
+        $activePixCharge = $card->recharges()
             ->where('payment_method', 'pix_dynamic')
             ->where('status', Recharge::STATUS_PENDING)
-            ->first(fn (Recharge $r) => ! $r->expires_at || now()->lt($r->expires_at));
+            ->where(function ($query): void {
+                $query->whereNull('expires_at')
+                    ->orWhere('expires_at', '>', now());
+            })
+            ->latest()
+            ->first();
 
         $activePixQrSvg = $activePixCharge && $activePixCharge->pix_payload
             ? PixQrCodeSvgGenerator::renderSvg($activePixCharge->pix_payload, 176)
             : null;
 
-        return view('card.show', compact('card', 'pendingRechargesTotal', 'activePixCharge', 'activePixQrSvg'));
+        $dailySpent = CartPricing::toDecimal($this->ledger->dailySpentCents($card));
+        $loyaltySummary = $loyaltyTierService->summaryFor($user);
+
+        $sentGiftCards = GiftCard::query()
+            ->where('purchaser_user_id', $user->id)
+            ->latest()
+            ->limit(10)
+            ->get();
+
+        $redeemedGiftCards = GiftCard::query()
+            ->where('redeemer_user_id', $user->id)
+            ->latest('redeemed_at')
+            ->limit(10)
+            ->get();
+
+        $savingsGoals = $user->savingsGoals()
+            ->with('product')
+            ->latest()
+            ->get();
+
+        $savingsGoalsTotal = (float) $savingsGoals->sum('current_amount');
+        $goalPresetProduct = null;
+        if ($request->filled('goal_product')) {
+            $goalPresetProduct = Product::where('id', (int) $request->input('goal_product'))
+                ->where('is_active', true)
+                ->first();
+        }
+
+        return view('card.show', compact(
+            'card',
+            'transactions',
+            'recharges',
+            'pendingRechargesTotal',
+            'activePixCharge',
+            'activePixQrSvg',
+            'dailySpent',
+            'loyaltySummary',
+            'sentGiftCards',
+            'redeemedGiftCards',
+            'savingsGoals',
+            'savingsGoalsTotal',
+            'goalPresetProduct',
+            'selectedTxType',
+        ));
     }
 
     /**
@@ -65,7 +150,7 @@ class VirtualCardController extends Controller
 
         return back()->with(
             'success',
-            "Cobrança PIX Simulada ({$recharge->txid}) gerada! Utilize o botão 'Simular Pagamento (SIMULAÇÃO)' ou aguarde a atualização automática."
+            "Cobrança PIX ({$recharge->txid}) gerada! Utilize o QR Code ou código copia e cola para concluir o pagamento."
         );
     }
 
@@ -97,7 +182,7 @@ class VirtualCardController extends Controller
     }
 
     /**
-     * Endpoint de Webhook PIX Simulado idempotente (disponível apenas fora de produção).
+     * Endpoint de Webhook PIX Simulado idempotente (disponível apenas fora de produção e restrito ao titular/financeiro).
      */
     public function simulatePixWebhook(Request $request, PaymentGateway $gateway): RedirectResponse|JsonResponse
     {
@@ -107,7 +192,18 @@ class VirtualCardController extends Controller
             'txid' => ['required', 'string', 'max:64', 'exists:recharges,txid'],
         ]);
 
-        $recharge = $gateway->confirmPixWebhook($validated['txid'], $request->user()?->id);
+        $targetRecharge = Recharge::with('virtualCard')
+            ->where('txid', $validated['txid'])
+            ->firstOrFail();
+
+        $user = $request->user();
+        abort_unless(
+            $user && ((int) $targetRecharge->virtualCard?->user_id === (int) $user->id || $user->canApproveRecharges()),
+            403,
+            'Você não tem permissão para confirmar esta cobrança PIX.'
+        );
+
+        $recharge = $gateway->confirmPixWebhook($validated['txid'], $user->id);
         $card = $recharge->virtualCard()->first();
 
         if ($request->expectsJson()) {
@@ -117,13 +213,13 @@ class VirtualCardController extends Controller
                 'approved_amount' => (float) $recharge->approved_amount,
                 'card_balance' => (float) ($card?->balance ?? 0),
                 'card_balance_formatted' => number_format((float) ($card?->balance ?? 0), 2, ',', '.'),
-                'message' => 'Pagamento PIX Simulado confirmado! R$ '.number_format((float) $recharge->approved_amount, 2, ',', '.').' creditados na carteira.',
+                'message' => 'Pagamento PIX confirmado! R$ '.number_format((float) $recharge->approved_amount, 2, ',', '.').' creditados na carteira.',
             ]);
         }
 
         return back()->with(
             'success',
-            'Pagamento PIX Simulado confirmado via webhook! R$ '.number_format((float) $recharge->approved_amount, 2, ',', '.').' creditados na carteira.'
+            'Pagamento PIX confirmado via webhook! R$ '.number_format((float) $recharge->approved_amount, 2, ',', '.').' creditados na carteira.'
         );
     }
 
@@ -172,14 +268,11 @@ class VirtualCardController extends Controller
                 'card_number' => $card->formatted_number,
                 'cvv' => $card->cvv,
                 'expiration_date' => $card->expiration_date,
-                'message' => 'Dados do cartão virtual fictício revelados temporariamente.',
+                'message' => 'Dados do cartão virtual revelados temporariamente.',
             ]);
         }
 
-        return back()
-            ->with('revealed_cvv', $card->cvv)
-            ->with('revealed_pan', $card->formatted_number)
-            ->with('success', 'Dados do cartão virtual fictício revelados temporariamente para esta visualização.');
+        return back()->with('success', 'PIN verificado. Utilize a visualização segura na tela do cartão.');
     }
 
     public function storeRecharge(Request $request): RedirectResponse
@@ -217,6 +310,8 @@ class VirtualCardController extends Controller
             $request->user()->id
         );
 
+        Cache::forget('admin_pending_counts');
+
         return back()->with('success', 'Comprovante enviado! O saldo será liberado após validação.');
     }
 
@@ -250,13 +345,29 @@ class VirtualCardController extends Controller
             'Content-Disposition' => 'inline; filename="'.$safeFilename.'"',
             'X-Content-Type-Options' => 'nosniff',
             'Cache-Control' => 'private, no-store, max-age=0',
+            'Content-Security-Policy' => "default-src 'none'; sandbox",
         ]);
     }
 
-    public function toggleBlock(Request $request): RedirectResponse
+    public function toggleBlock(Request $request, CardPinGuard $pinGuard): RedirectResponse
     {
         $card = $this->cardFor($request->user());
         $oldActive = (bool) $card->is_active;
+
+        // Ao desbloquear um cartão que já possui PIN configurado, exige validação do PIN
+        if (! $oldActive && ! empty($card->security_pin)) {
+            $validated = $request->validate([
+                'pin' => ['required', 'digits:4'],
+            ]);
+
+            $pinGuard->verify(
+                user: $request->user(),
+                card: $card,
+                pin: (string) $validated['pin'],
+                field: 'pin',
+                invalidPinMessage: 'PIN incorreto. Informe o PIN de 4 dígitos para desbloquear o cartão.',
+            );
+        }
 
         $card->update(['is_active' => ! $oldActive]);
 
@@ -274,6 +385,165 @@ class VirtualCardController extends Controller
                 ? 'Cartão desbloqueado com sucesso.'
                 : 'Cartão bloqueado temporariamente. Nenhuma compra poderá ser feita enquanto estiver bloqueado.'
         );
+    }
+
+    public function transfer(
+        Request $request,
+        TransferBalanceAction $transferBalance,
+        CardPinGuard $pinGuard,
+    ): RedirectResponse {
+        $validated = $request->validate([
+            'recipient_email' => ['required', 'email', 'max:180'],
+            'amount' => ['required', 'numeric', 'min:1.00', 'max:10000.00'],
+            'pin' => ['required', 'digits:4'],
+            'note' => ['nullable', 'string', 'max:140'],
+        ]);
+
+        $sender = $request->user();
+        $card = $this->cardFor($sender);
+
+        $pinGuard->verify(
+            user: $sender,
+            card: $card,
+            pin: (string) $validated['pin'],
+            field: 'pin',
+            missingPinMessage: 'Configure um PIN de 4 dígitos no seu cartão antes de transferir saldo.',
+            invalidPinMessage: 'PIN incorreto. Confirme seu PIN de 4 dígitos para concluir a transferência.',
+        );
+
+        try {
+            $result = $transferBalance->execute(
+                sender: $sender,
+                recipientEmail: (string) $validated['recipient_email'],
+                amount: (float) $validated['amount'],
+                note: $validated['note'] ?? null,
+            );
+        } catch (DomainException $exception) {
+            return back()->withInput()->with('error', $exception->getMessage());
+        }
+
+        $formattedAmount = 'R$ '.number_format((float) $validated['amount'], 2, ',', '.');
+
+        return redirect()->route('card.show')->with(
+            'success',
+            "Transferência instantânea de {$formattedAmount} enviada para {$result['recipient']->name}!"
+        );
+    }
+
+    public function updateDailyLimit(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'daily_limit' => ['nullable', 'numeric', 'min:10.00', 'max:999999.99'],
+        ]);
+
+        $card = $this->cardFor($request->user());
+        $oldLimit = $card->daily_limit !== null ? (float) $card->daily_limit : null;
+        $newLimit = isset($validated['daily_limit']) && $validated['daily_limit'] !== ''
+            ? round((float) $validated['daily_limit'], 2)
+            : null;
+
+        $card->update(['daily_limit' => $newLimit]);
+
+        AuditLog::record(
+            'card.daily_limit_updated',
+            $card,
+            ['daily_limit' => $oldLimit],
+            ['daily_limit' => $newLimit],
+            $request->user()->id
+        );
+
+        return back()->with(
+            'success',
+            $newLimit !== null
+                ? 'Limite diário atualizado para R$ '.number_format($newLimit, 2, ',', '.').'.'
+                : 'Limite diário removido.'
+        );
+    }
+
+    /**
+     * Rotaciona o código CVV do cartão virtual exigindo confirmação de PIN.
+     */
+    public function rotateCvv(Request $request): RedirectResponse|JsonResponse
+    {
+        $validated = $request->validate([
+            'pin' => ['required', 'digits:4'],
+        ]);
+
+        $throttleKey = self::pinThrottleKey($request->user()->id);
+
+        if (RateLimiter::tooManyAttempts($throttleKey, self::PIN_MAX_ATTEMPTS)) {
+            $seconds = RateLimiter::availableIn($throttleKey);
+            $minutes = (int) ceil($seconds / 60);
+
+            throw ValidationException::withMessages([
+                'pin' => "Muitas tentativas incorretas de PIN. Aguarde {$minutes} minuto(s) ({$seconds}s).",
+            ]);
+        }
+
+        $card = $this->cardFor($request->user());
+
+        if (empty($card->security_pin)) {
+            throw ValidationException::withMessages([
+                'pin' => 'Defina um PIN de 4 dígitos antes de rotacionar o CVV.',
+            ]);
+        }
+
+        if (! Hash::check((string) $validated['pin'], $card->security_pin)) {
+            RateLimiter::hit($throttleKey, self::PIN_DECAY_SECONDS);
+
+            throw ValidationException::withMessages([
+                'pin' => 'PIN incorreto. Não foi possível rotacionar o CVV.',
+            ]);
+        }
+
+        RateLimiter::clear($throttleKey);
+
+        $previousCvv = (string) $card->cvv;
+        do {
+            $newCvv = VirtualCard::generateCvv();
+        } while ($newCvv === $previousCvv);
+
+        $card->update(['cvv' => $newCvv]);
+
+        AuditLog::record('card.cvv_rotated', $card, null, ['rotated' => true], $request->user()->id);
+
+        if ($request->expectsJson()) {
+            return response()->json([
+                'message' => 'CVV rotacionado com sucesso.',
+            ]);
+        }
+
+        return back()->with('success', 'Novo código de segurança (CVV) gerado com sucesso!');
+    }
+
+    /**
+     * Exporta o extrato financeiro pessoal do titular em CSV com BOM UTF-8 e proteção anti-Formula Injection.
+     */
+    public function exportStatementCsv(Request $request): StreamedResponse
+    {
+        $card = $this->cardFor($request->user());
+        $query = $card->transactions()->latest();
+        $filename = 'extrato-digitalcard-'.now()->format('Ymd-His').'.csv';
+
+        return response()->streamDownload(function () use ($query): void {
+            $handle = fopen('php://output', 'w');
+            fwrite($handle, "\xEF\xBB\xBF");
+            fputcsv($handle, ['Data', 'Tipo', 'Descrição', 'Valor (R$)', 'Saldo Após (R$)'], ';');
+
+            foreach ($query->cursor() as $tx) {
+                fputcsv($handle, [
+                    $tx->created_at?->format('d/m/Y H:i'),
+                    $this->sanitizeCsvCell($tx->type),
+                    $this->sanitizeCsvCell($tx->description),
+                    number_format((float) $tx->amount, 2, ',', ''),
+                    number_format((float) $tx->balance_after, 2, ',', ''),
+                ], ';');
+            }
+
+            fclose($handle);
+        }, $filename, [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+        ]);
     }
 
     public function updatePin(Request $request): RedirectResponse
@@ -332,7 +602,7 @@ class VirtualCardController extends Controller
         $recharge->loadMissing('virtualCard');
         Gate::authorize('review', $recharge);
 
-        DB::transaction(function () use ($request, $recharge, $validated) {
+        DB::transaction(function () use ($request, $recharge, $validated): void {
             $lockedRecharge = Recharge::where('id', $recharge->id)->lockForUpdate()->firstOrFail();
 
             if ($lockedRecharge->status !== Recharge::STATUS_PENDING) {
@@ -345,19 +615,20 @@ class VirtualCardController extends Controller
                 abort(403, 'Administradores não podem aprovar recargas do próprio cartão virtual.');
             }
 
-            $approvedAmount = round((float) ($validated['approved_amount'] ?? $lockedRecharge->amount), 2);
+            $approvedCents = CartPricing::toCents((float) ($validated['approved_amount'] ?? $lockedRecharge->amount));
+            $approvedAmount = CartPricing::toDecimal($approvedCents);
             $oldBalance = round((float) $card->balance, 2);
-            $newBalance = round($oldBalance + $approvedAmount, 2);
 
-            $card->update(['balance' => $newBalance]);
+            $tx = $this->ledger->credit(
+                lockedCard: $card,
+                amountCents: $approvedCents,
+                type: CardTransaction::TYPE_RECHARGE,
+                description: 'Recarga aprovada #REC-'.str_pad((string) $lockedRecharge->id, 5, '0', STR_PAD_LEFT),
+                reference: $lockedRecharge,
+                idempotencyKey: "recharge:{$lockedRecharge->id}:manual",
+            );
 
-            CardTransaction::create([
-                'virtual_card_id' => $card->id,
-                'type' => CardTransaction::TYPE_RECHARGE,
-                'amount' => $approvedAmount,
-                'balance_after' => $newBalance,
-                'description' => 'Recarga aprovada #REC-'.str_pad((string) $lockedRecharge->id, 5, '0', STR_PAD_LEFT),
-            ]);
+            $newBalance = (float) $tx->balance_after;
 
             $lockedRecharge->update([
                 'status' => Recharge::STATUS_APPROVED,
@@ -385,6 +656,11 @@ class VirtualCardController extends Controller
             );
         });
 
+        Cache::forget('admin_pending_counts');
+        $recharge->fresh('virtualCard.user')?->virtualCard?->user?->notify(
+            new RechargeReviewedNotification($recharge->fresh(), true)
+        );
+
         return back()->with('success', 'Recarga aprovada e saldo creditado no cartão virtual!');
     }
 
@@ -397,7 +673,7 @@ class VirtualCardController extends Controller
         $recharge->loadMissing('virtualCard');
         Gate::authorize('review', $recharge);
 
-        DB::transaction(function () use ($request, $recharge, $validated) {
+        DB::transaction(function () use ($request, $recharge, $validated): void {
             $lockedRecharge = Recharge::where('id', $recharge->id)->lockForUpdate()->firstOrFail();
 
             if ($lockedRecharge->status !== Recharge::STATUS_PENDING) {
@@ -430,12 +706,27 @@ class VirtualCardController extends Controller
             );
         });
 
+        Cache::forget('admin_pending_counts');
+        $recharge->fresh('virtualCard.user')?->virtualCard?->user?->notify(
+            new RechargeReviewedNotification($recharge->fresh(), false)
+        );
+
         return back()->with('success', 'Recarga recusada.');
     }
 
     public static function pinThrottleKey(int $userId): string
     {
         return 'card-pin:'.$userId;
+    }
+
+    private function sanitizeCsvCell(?string $value): string
+    {
+        $text = (string) ($value ?? '');
+        if ($text !== '' && in_array($text[0], ['=', '+', '-', '@', "\t", "\r"], true)) {
+            return "'".$text;
+        }
+
+        return $text;
     }
 
     private function cardFor(User $user): VirtualCard

@@ -1,11 +1,22 @@
-<x-app-layout :metaTitle="'Meu Cartão Virtual'" :metaDescription="'Consulte saldo, recarregue via PIX simulado e acompanhe o extrato do seu cartão virtual universitário.'">
+<x-app-layout :metaTitle="'Meu Cartão Virtual'" :metaDescription="'Consulte seu saldo, recarregue via PIX instantâneo e acompanhe o extrato do seu cartão virtual DigitalCard.'">
     @php
-        $initialRevealedPan = session('revealed_pan');
-        $initialRevealedCvv = session('revealed_cvv');
-        $pixKey = (string) config('digitalcard.pix.key', 'simulacao-pix@digitalcard.edu.br');
+        $pixKey = (string) config('digitalcard.pix.key', 'pix@digitalcard.com.br');
+        $typeLabels = [
+            'recarga' => ['Recarga PIX', 'bg-money-50 text-money-700 border-money-200'],
+            'compra' => ['Compra Loja', 'bg-danger-50 text-danger-700 border-danger-200'],
+            'cashback' => ['Cashback', 'bg-accent-50 text-accent-800 border-accent-200'],
+            'estorno' => ['Estorno', 'bg-paper text-slate-700 border-line'],
+            'estorno_cashback' => ['Estorno Cashback', 'bg-danger-50 text-danger-700 border-danger-200'],
+            'transferencia_enviada' => ['Transferência Enviada', 'bg-danger-50 text-danger-700 border-danger-200'],
+            'transferencia_recebida' => ['Transferência Recebida', 'bg-money-50 text-money-700 border-money-200'],
+            'gift_card_compra' => ['Vale-Presente Emitido', 'bg-danger-50 text-danger-700 border-danger-200'],
+            'gift_card_resgate' => ['Vale-Presente Resgatado', 'bg-money-50 text-money-700 border-money-200'],
+            'cofrinho_deposito' => ['Reserva no Cofrinho', 'bg-danger-50 text-danger-700 border-danger-200'],
+            'cofrinho_resgate' => ['Resgate do Cofrinho', 'bg-money-50 text-money-700 border-money-200'],
+        ];
     @endphp
 
-    <div class="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8 space-y-8"
+    <div class="app-shell py-8 space-y-8"
          x-data="{
             showBalance: true,
             flipped: false,
@@ -18,15 +29,18 @@
             receiptPreviewUrl: '',
             isPdf: false,
             txFilter: 'todas',
-            cardBalanceFormatted: '{{ number_format((float) $card->balance, 2, ',', '.') }}',
-            cardNumber: '{{ $initialRevealedPan ?: $card->masked_number }}',
-            cvvCode: '{{ $initialRevealedCvv ?: '•••' }}',
-            isRevealed: {{ $initialRevealedPan ? 'true' : 'false' }},
+            cardBalanceFormatted: @js(number_format((float) $card->balance, 2, ',', '.')),
+            maskedNumber: @js($card->masked_number),
+            cardNumber: @js($card->masked_number),
+            cvvCode: '•••',
+            isRevealed: false,
+            revealSecondsLeft: 0,
+            revealTimer: null,
             revealPin: '',
             revealError: '',
             revealLoading: false,
             pixRemainingSeconds: {{ $activePixCharge && $activePixCharge->expires_at ? max(0, (int) now()->diffInSeconds($activePixCharge->expires_at, false)) : 0 }},
-            pixStatus: '{{ $activePixCharge->status ?? '' }}',
+            pixStatus: @js($activePixCharge->status ?? ''),
             init() {
                 @if($activePixCharge)
                     setInterval(() => {
@@ -41,7 +55,7 @@
                             return;
                         }
                         try {
-                            const res = await fetch('{{ route('card.pix.status', $activePixCharge) }}', {
+                            const res = await fetch(@js(route('card.pix.status', $activePixCharge)), {
                                 headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
                             });
                             if (!res.ok) return;
@@ -57,6 +71,29 @@
                         } catch (e) {}
                     }, 5000);
                 @endif
+            },
+            hideRevealedData() {
+                if (this.revealTimer) {
+                    clearInterval(this.revealTimer);
+                    this.revealTimer = null;
+                }
+                this.cardNumber = this.maskedNumber;
+                this.cvvCode = '•••';
+                this.isRevealed = false;
+                this.revealSecondsLeft = 0;
+            },
+            startAutoMaskCountdown() {
+                if (this.revealTimer) {
+                    clearInterval(this.revealTimer);
+                }
+                this.revealSecondsLeft = 30;
+                this.revealTimer = setInterval(() => {
+                    if (this.revealSecondsLeft > 1) {
+                        this.revealSecondsLeft--;
+                    } else {
+                        this.hideRevealedData();
+                    }
+                }, 1000);
             },
             formatCountdown(sec) {
                 const m = String(Math.floor(sec / 60)).padStart(2, '0');
@@ -78,12 +115,12 @@
                 this.revealError = '';
                 this.revealLoading = true;
                 try {
-                    const res = await fetch('{{ route('card.reveal-cvv') }}', {
+                    const res = await fetch(@js(route('card.reveal-cvv')), {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
                             'Accept': 'application/json',
-                            'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                            'X-CSRF-TOKEN': @js(csrf_token()),
                             'X-Requested-With': 'XMLHttpRequest'
                         },
                         body: JSON.stringify({ pin: this.revealPin })
@@ -96,7 +133,8 @@
                         this.cvvCode = data.cvv;
                         this.isRevealed = true;
                         this.revealPin = '';
-                        this.showToast('Número completo e CVV revelados temporariamente!');
+                        this.startAutoMaskCountdown();
+                        this.showToast('Número completo e CVV revelados por 30 segundos!');
                     }
                 } catch (e) {
                     this.revealError = 'Erro ao validar o PIN.';
@@ -146,7 +184,7 @@
 
         <div class="flex flex-col justify-between gap-4 border-b border-line pb-5 md:flex-row md:items-end">
             <div>
-                <x-eyebrow>Loja universitária com cartão virtual</x-eyebrow>
+                <x-eyebrow>Carteira digital</x-eyebrow>
                 <h1 class="mt-1 font-serif text-3xl text-ink">Meu Cartão Virtual</h1>
             </div>
 
@@ -165,7 +203,9 @@
 
         <div class="grid grid-cols-1 items-start gap-8 lg:grid-cols-12">
             <div class="space-y-5 lg:col-span-5">
-                <x-virtual-card :card="$card" :interactive="true" />
+                <div class="max-w-[460px]">
+                    <x-virtual-card :card="$card" :interactive="true" :tierLabel="$loyaltySummary['tier_label'] ?? null" />
+                </div>
 
                 <div class="grid grid-cols-3 gap-2.5">
                     <button @click="isRevealed ? copyText(cardNumber, 'Número copiado!') : showToast('Confirme seu PIN abaixo para revelar e copiar o número completo.')"
@@ -188,11 +228,64 @@
                     </button>
                 </div>
 
+                @if(isset($loyaltySummary))
+                    @php
+                        $tierEnum = $loyaltySummary['tier'];
+                    @endphp
+                    <div class="rounded-xl border border-line bg-surface p-5 space-y-3.5">
+                        <div class="flex items-start justify-between gap-2">
+                            <div class="flex items-center gap-2.5">
+                                <span class="h-9 w-9 rounded-lg bg-paper border border-line flex items-center justify-center shrink-0">
+                                    <x-icon name="crown" class="size-4 text-accent-600" />
+                                </span>
+                                <div>
+                                    <h2 class="text-sm font-semibold text-ink">Clube DigitalCard</h2>
+                                    <p class="text-xs text-slate-600 tabular-nums">
+                                        Compras entregues: R$ {{ number_format($loyaltySummary['delivered_spend'], 2, ',', '.') }}
+                                    </p>
+                                </div>
+                            </div>
+                            <span class="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-semibold {{ $tierEnum->badgeClasses() }}">
+                                Nível {{ $loyaltySummary['tier_label'] }}
+                            </span>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-2.5 text-xs">
+                            <div class="rounded-lg border border-line bg-paper p-3">
+                                <span class="text-slate-500 block">Cashback bônus</span>
+                                <span class="font-mono font-semibold tabular-nums text-money-700 mt-0.5 block">
+                                    +{{ rtrim(rtrim(number_format($loyaltySummary['bonus_cashback_percent'], 2, ',', '.'), '0'), ',') }}% por item
+                                </span>
+                            </div>
+                            <div class="rounded-lg border border-line bg-paper p-3">
+                                <span class="text-slate-500 block">Frete grátis a partir de</span>
+                                <span class="font-mono font-semibold tabular-nums text-ink mt-0.5 block">
+                                    {{ $loyaltySummary['free_shipping_min_cents'] === 0 ? 'Sempre grátis' : 'R$ '.number_format($loyaltySummary['free_shipping_min'], 0, ',', '.') }}
+                                </span>
+                            </div>
+                        </div>
+
+                        <div class="space-y-1.5 text-xs">
+                            <div class="flex items-center justify-between text-slate-600">
+                                @if($loyaltySummary['next_tier_label'])
+                                    <span>Faltam <strong class="font-mono tabular-nums text-ink">R$ {{ number_format($loyaltySummary['remaining_to_next'], 2, ',', '.') }}</strong> para <strong>{{ $loyaltySummary['next_tier_label'] }}</strong></span>
+                                @else
+                                    <span class="font-medium text-money-700">Você atingiu o nível máximo do Clube DigitalCard!</span>
+                                @endif
+                                <span class="font-mono tabular-nums font-semibold text-ink">{{ $loyaltySummary['progress_percent'] }}%</span>
+                            </div>
+                            <div class="h-1.5 w-full rounded-full bg-paper-dim overflow-hidden">
+                                <div class="h-full bg-accent-500 rounded-full transition-all" style="width: {{ $loyaltySummary['progress_percent'] }}%"></div>
+                            </div>
+                        </div>
+                    </div>
+                @endif
+
                 <div class="rounded-xl border border-line bg-surface p-5 space-y-3">
                     <div class="flex items-center justify-between gap-2">
                         <div>
                             <h2 class="text-sm font-semibold text-ink">Revelar número completo e CVV</h2>
-                            <p class="text-xs text-slate-600 mt-0.5">Digite seu PIN de 4 dígitos para ver o número completo e o CVV.</p>
+                            <p class="text-xs text-slate-600 mt-0.5">Digite seu PIN de 4 dígitos para ver os dados por 30 segundos.</p>
                         </div>
                     </div>
 
@@ -211,29 +304,60 @@
 
                     <p x-show="revealError" x-cloak class="text-xs font-medium text-danger-600" x-text="revealError"></p>
 
-                    <div x-show="isRevealed" x-cloak class="rounded-lg border border-money-200 bg-money-50 p-3 text-xs space-y-1">
+                    <div x-show="isRevealed" x-cloak class="rounded-lg border border-money-200 bg-money-50 p-3 text-xs space-y-1.5">
                         <div class="flex items-center justify-between">
                             <span class="font-medium text-ink">Nº do cartão: <strong class="font-mono tabular-nums" x-text="cardNumber"></strong></span>
                             <button @click="copyText(cardNumber, 'Número completo copiado!')" type="button" class="font-medium text-money-800 underline">Copiar</button>
                         </div>
-                        <p class="font-medium text-ink">CVV: <strong class="font-mono tabular-nums text-money-900" x-text="cvvCode"></strong></p>
+                        <div class="flex items-center justify-between">
+                            <p class="font-medium text-ink">CVV: <strong class="font-mono tabular-nums text-money-900" x-text="cvvCode"></strong></p>
+                            <span class="font-mono text-slate-600 tabular-nums" x-text="'Ocultando em ' + revealSecondsLeft + 's'"></span>
+                        </div>
                     </div>
                 </div>
 
                 <div class="space-y-4 rounded-xl border border-line bg-surface p-5">
                     <div class="border-b border-line pb-3">
                         <h2 class="text-sm font-semibold text-ink">Segurança e controle do cartão</h2>
-                        <p class="text-xs text-slate-600 mt-0.5">Bloqueio temporário e configuração da senha PIN de 4 dígitos.</p>
+                        <p class="text-xs text-slate-600 mt-0.5">Bloqueio temporário, limite diário e senha PIN de 4 dígitos.</p>
                     </div>
 
-                    <form action="{{ route('card.toggle-block') }}" method="POST">
+                    <form action="{{ route('card.toggle-block') }}" method="POST" class="space-y-2">
                         @csrf
                         @method('PATCH')
+                        @if(! $card->is_active && $card->security_pin)
+                            <div>
+                                <label for="unblock_pin_input" class="block text-xs font-medium text-slate-700 mb-1">Confirme seu PIN de 4 dígitos para desbloquear</label>
+                                <input id="unblock_pin_input" type="password" name="pin" inputmode="numeric" maxlength="4" required placeholder="PIN atual (4 dígitos)"
+                                       class="block w-full rounded-lg border-line text-xs py-2 font-mono">
+                            </div>
+                        @endif
                         <button type="submit"
                                 class="flex w-full items-center justify-between rounded-lg border px-4 py-2.5 text-left text-xs font-medium transition {{ $card->is_active ? 'border-danger-200 bg-danger-50 text-danger-700 hover:bg-danger-100' : 'border-money-200 bg-money-50 text-money-700 hover:bg-money-100' }}">
                             <span>{{ $card->is_active ? 'Bloquear cartão temporariamente' : 'Desbloquear cartão agora' }}</span>
                             <span class="text-xs font-semibold px-2 py-0.5 rounded bg-surface">{{ $card->is_active ? 'Bloquear' : 'Ativar' }}</span>
                         </button>
+                    </form>
+
+                    <form action="{{ route('card.update-limit') }}" method="POST" class="space-y-2.5 border-t border-line pt-4">
+                        @csrf
+                        @method('PATCH')
+                        <div class="flex items-center justify-between text-xs">
+                            <span class="font-medium text-slate-700">Limite diário de compras</span>
+                            <span class="font-mono tabular-nums text-slate-500">
+                                Gasto hoje: R$ {{ number_format($dailySpent ?? 0, 2, ',', '.') }}
+                            </span>
+                        </div>
+                        <div class="flex gap-2">
+                            <input id="daily_limit_input" type="number" step="0.01" min="10.00" max="999999.99" name="daily_limit"
+                                   value="{{ old('daily_limit', $card->daily_limit !== null ? number_format((float) $card->daily_limit, 2, '.', '') : '') }}"
+                                   placeholder="Sem limite (opcional)"
+                                   aria-label="Limite diário em reais"
+                                   class="flex-1 rounded-lg border-line text-xs font-mono tabular-nums py-2 px-3">
+                            <button type="submit" class="rounded-lg border border-line bg-paper hover:border-ink px-3.5 py-2 text-xs font-semibold text-ink transition">
+                                Salvar limite
+                            </button>
+                        </div>
                     </form>
 
                     <form action="{{ route('card.update-pin') }}" method="POST" class="space-y-3 border-t border-line pt-4">
@@ -273,6 +397,74 @@
                             {{ $card->security_pin ? 'Atualizar PIN de segurança' : 'Cadastrar PIN de segurança' }}
                         </button>
                     </form>
+
+                    @if($card->security_pin)
+                        <form action="{{ route('card.rotate-cvv') }}" method="POST" class="space-y-2.5 border-t border-line pt-4">
+                            @csrf
+                            <div>
+                                <span class="text-xs font-medium text-slate-700 block">Rotacionar código CVV</span>
+                                <span class="text-xs text-slate-500">Gera um novo CVV dinâmico mediante confirmação do PIN.</span>
+                            </div>
+                            <div class="flex gap-2">
+                                <input type="password" name="pin" inputmode="numeric" maxlength="4" required placeholder="PIN (4 dígitos)"
+                                       aria-label="PIN para rotacionar CVV"
+                                       class="flex-1 rounded-lg border-line text-xs font-mono py-2 px-3">
+                                <button type="submit" class="rounded-lg border border-line bg-paper hover:border-ink px-3.5 py-2 text-xs font-semibold text-ink transition">
+                                    Gerar novo CVV
+                                </button>
+                            </div>
+                        </form>
+                    @endif
+                </div>
+
+                <div class="rounded-xl border border-line bg-surface p-5 space-y-4">
+                    <div class="flex items-center gap-2.5 border-b border-line pb-3">
+                        <span class="h-9 w-9 rounded-lg bg-paper border border-line flex items-center justify-center shrink-0">
+                            <x-icon name="send" class="size-4 text-ink" />
+                        </span>
+                        <div>
+                            <h2 class="text-sm font-semibold text-ink">Transferência instantânea P2P</h2>
+                            <p class="text-xs text-slate-600">Envie saldo na hora para outro usuário DigitalCard pelo e-mail.</p>
+                        </div>
+                    </div>
+
+                    <form action="{{ route('card.transfer') }}" method="POST" class="space-y-3 text-xs">
+                        @csrf
+                        <div>
+                            <label for="transfer_recipient_email" class="block font-medium text-slate-700 mb-1">E-mail do destinatário</label>
+                            <input id="transfer_recipient_email" type="email" name="recipient_email" value="{{ old('recipient_email') }}"
+                                   autocorrect="off" autocapitalize="off" spellcheck="false" required
+                                   placeholder="marina@digitalcard.com"
+                                   class="block w-full rounded-lg border-line bg-paper py-2 px-3 text-xs">
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-2.5">
+                            <div>
+                                <label for="transfer_amount" class="block font-medium text-slate-700 mb-1">Valor (R$)</label>
+                                <input id="transfer_amount" type="number" name="amount" step="0.01" min="1.00" max="10000.00" inputmode="decimal"
+                                       value="{{ old('amount') }}" required placeholder="100.00"
+                                       class="block w-full rounded-lg border-line bg-paper py-2 px-3 font-mono tabular-nums text-xs">
+                            </div>
+                            <div>
+                                <label for="transfer_pin" class="block font-medium text-slate-700 mb-1">PIN de segurança</label>
+                                <input id="transfer_pin" type="password" name="pin" inputmode="numeric" maxlength="4" required placeholder="••••"
+                                       class="block w-full rounded-lg border-line bg-paper py-2 px-3 font-mono text-xs">
+                            </div>
+                        </div>
+
+                        <div>
+                            <label for="transfer_note" class="block font-medium text-slate-700 mb-1">Mensagem (opcional)</label>
+                            <input id="transfer_note" type="text" name="note" maxlength="140" value="{{ old('note') }}"
+                                   placeholder="Ex.: Divisão da compra do escritório"
+                                   class="block w-full rounded-lg border-line bg-paper py-2 px-3 text-xs">
+                        </div>
+
+                        <button type="submit"
+                                class="w-full rounded-lg bg-ink hover:bg-slate-800 px-4 py-2.5 text-xs font-semibold text-paper transition flex items-center justify-center gap-1.5">
+                            <x-icon name="send" class="size-3.5" />
+                            <span>Enviar transferência agora</span>
+                        </button>
+                    </form>
                 </div>
             </div>
 
@@ -280,8 +472,8 @@
                 <div class="rounded-xl border border-line bg-surface p-6 space-y-5">
                     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-line pb-4">
                         <div>
-                            <x-eyebrow>PIX Simulado</x-eyebrow>
-                            <h2 class="mt-1 text-lg font-semibold text-ink">Recarregar saldo via PIX simulado</h2>
+                            <x-eyebrow>Recarga instantânea</x-eyebrow>
+                            <h2 class="mt-1 text-lg font-semibold text-ink">Recarregar saldo via PIX</h2>
                             <p class="text-xs text-slate-600 mt-0.5">Escolha o valor, gere o PIX e pague com o QR Code ou o código copia e cola.</p>
                         </div>
                         <span class="text-xs font-mono text-slate-600 bg-paper-dim px-2.5 py-1 rounded-md border border-line">
@@ -357,7 +549,7 @@
                                         <div class="flex gap-2">
                                             <input id="pix_brcode_copy" type="text" readonly value="{{ $activePixCharge->pix_payload }}"
                                                    class="flex-1 min-w-0 rounded-lg border-line bg-surface font-mono text-xs py-2 px-3 text-slate-800">
-                                            <button @click="copyText('{{ $activePixCharge->pix_payload }}', 'Código PIX copia e cola copiado!')"
+                                            <button @click="copyText(@js($activePixCharge->pix_payload), 'Código PIX copia e cola copiado!')"
                                                     type="button"
                                                     class="rounded-lg bg-ink hover:bg-slate-800 px-3.5 py-2 text-xs font-semibold text-paper transition shrink-0">
                                                 Copiar
@@ -372,7 +564,7 @@
                                             <button type="submit"
                                                     class="w-full rounded-lg bg-money-600 hover:bg-money-700 px-4 py-3 text-xs font-semibold text-paper transition flex items-center justify-center gap-2">
                                                 <x-icon name="qr-code" class="size-4" />
-                                                <span>Simular pagamento (Simulação acadêmica)</span>
+                                                <span>Confirmar pagamento PIX (Ambiente de Teste)</span>
                                             </button>
                                         </form>
                                     @endif
@@ -411,18 +603,285 @@
                     </details>
                 </div>
 
+                <div x-data="{ giftTab: 'emitir', giftAmount: 100 }" class="rounded-xl border border-line bg-surface p-6 space-y-5">
+                    <div class="flex flex-wrap items-center justify-between gap-3 border-b border-line pb-4">
+                        <div class="flex items-center gap-2.5">
+                            <span class="h-9 w-9 rounded-lg bg-paper border border-line flex items-center justify-center shrink-0">
+                                <x-icon name="gift" class="size-4 text-accent-600" />
+                            </span>
+                            <div>
+                                <x-eyebrow>Vales digitais</x-eyebrow>
+                                <h2 class="text-base font-semibold text-ink">Vales-Presente (Gift Cards)</h2>
+                            </div>
+                        </div>
+
+                        <div class="inline-flex rounded-lg bg-paper-dim p-1 text-xs font-medium">
+                            <button type="button" @click="giftTab = 'emitir'"
+                                    :class="giftTab === 'emitir' ? 'bg-surface text-ink shadow-xs' : 'text-slate-600 hover:text-ink'"
+                                    class="rounded-md px-3 py-1.5 transition">
+                                Emitir código
+                            </button>
+                            <button type="button" @click="giftTab = 'resgatar'"
+                                    :class="giftTab === 'resgatar' ? 'bg-surface text-ink shadow-xs' : 'text-slate-600 hover:text-ink'"
+                                    class="rounded-md px-3 py-1.5 transition">
+                                Resgatar código
+                            </button>
+                        </div>
+                    </div>
+
+                    <form x-show="giftTab === 'emitir'" action="{{ route('gift-cards.store') }}" method="POST" class="space-y-4 text-xs">
+                        @csrf
+                        <div>
+                            <label for="gift_card_amount" class="block font-medium text-slate-700 mb-1.5">Valor do vale-presente (R$ 25 a R$ 5.000)</label>
+                            <div class="grid grid-cols-4 gap-2 mb-2">
+                                @foreach([50, 100, 250, 500] as $gcPreset)
+                                    <button type="button" @click="giftAmount = {{ $gcPreset }}"
+                                            :class="giftAmount == {{ $gcPreset }} ? 'bg-ink text-paper border-ink' : 'bg-paper text-slate-700 border-line hover:bg-paper-dim'"
+                                            class="py-1.5 px-2 rounded-lg border font-mono tabular-nums text-xs font-medium transition">
+                                        R$ {{ $gcPreset }}
+                                    </button>
+                                @endforeach
+                            </div>
+                            <input id="gift_card_amount" type="number" name="amount" x-model="giftAmount" step="0.01" min="25.00" max="5000.00" inputmode="decimal" required
+                                   class="block w-full rounded-lg border-line bg-paper py-2 px-3 font-mono tabular-nums text-sm font-semibold">
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                            <div>
+                                <label for="gift_recipient_name" class="block font-medium text-slate-700 mb-1">Para (opcional)</label>
+                                <input id="gift_recipient_name" type="text" name="recipient_name" maxlength="120" value="{{ old('recipient_name') }}" placeholder="Nome de quem recebe"
+                                       class="block w-full rounded-lg border-line bg-paper py-2 px-3 text-xs">
+                            </div>
+                            <div>
+                                <label for="gift_recipient_email" class="block font-medium text-slate-700 mb-1">E-mail (opcional)</label>
+                                <input id="gift_recipient_email" type="email" name="recipient_email" maxlength="180" value="{{ old('recipient_email') }}"
+                                       autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="pessoa@exemplo.com"
+                                       class="block w-full rounded-lg border-line bg-paper py-2 px-3 text-xs">
+                            </div>
+                            <div>
+                                <label for="gift_issue_pin" class="block font-medium text-slate-700 mb-1">PIN de segurança</label>
+                                <input id="gift_issue_pin" type="password" name="pin" inputmode="numeric" maxlength="4" required placeholder="••••"
+                                       class="block w-full rounded-lg border-line bg-paper py-2 px-3 font-mono text-xs">
+                            </div>
+                        </div>
+
+                        <div>
+                            <label for="gift_message" class="block font-medium text-slate-700 mb-1">Dedicatória (opcional)</label>
+                            <input id="gift_message" type="text" name="message" maxlength="255" value="{{ old('message') }}" placeholder="Parabéns! Aproveite seus produtos favoritos na DigitalCard."
+                                   class="block w-full rounded-lg border-line bg-paper py-2 px-3 text-xs">
+                        </div>
+
+                        <button type="submit"
+                                class="w-full rounded-lg bg-ink hover:bg-slate-800 px-4 py-2.5 text-xs font-semibold text-paper transition">
+                            Gerar Vale-Presente com saldo do cartão
+                        </button>
+                    </form>
+
+                    <form x-show="giftTab === 'resgatar'" x-cloak action="{{ route('gift-cards.redeem') }}" method="POST" class="space-y-3 text-xs">
+                        @csrf
+                        <div>
+                            <label for="gift_redeem_code" class="block font-medium text-slate-700 mb-1">Código do Vale-Presente</label>
+                            <input id="gift_redeem_code" type="text" name="code" value="{{ old('code') }}"
+                                   autocorrect="off" autocapitalize="characters" spellcheck="false" required maxlength="24"
+                                   placeholder="DCGC-XXXX-XXXX-XXXX"
+                                   class="block w-full rounded-lg border-line bg-paper py-2.5 px-3 font-mono uppercase tracking-wider text-sm">
+                        </div>
+                        <button type="submit"
+                                class="w-full rounded-lg bg-money-600 hover:bg-money-700 px-4 py-2.5 text-xs font-semibold text-paper transition">
+                            Resgatar valor para minha carteira
+                        </button>
+                    </form>
+
+                    @if(isset($sentGiftCards) && $sentGiftCards->isNotEmpty())
+                        <div class="border-t border-line pt-4 space-y-2 text-xs">
+                            <h3 class="font-semibold text-ink">Vales emitidos por você</h3>
+                            <div class="divide-y divide-line rounded-lg border border-line bg-paper overflow-hidden">
+                                @foreach($sentGiftCards as $gc)
+                                    <div class="px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2">
+                                        <div class="flex items-center gap-2 min-w-0">
+                                            <code class="font-mono font-semibold text-ink">{{ $gc->code }}</code>
+                                            <button type="button" @click="copyText(@js($gc->code), 'Código do vale copiado!')" class="text-slate-500 hover:text-ink" title="Copiar código">
+                                                <x-icon name="copy" class="size-3.5" />
+                                            </button>
+                                            @if($gc->recipient_name)
+                                                <span class="text-slate-500 truncate">→ {{ $gc->recipient_name }}</span>
+                                            @endif
+                                        </div>
+                                        <div class="flex items-center gap-2 shrink-0">
+                                            <span class="font-mono tabular-nums font-semibold text-ink">R$ {{ number_format((float) $gc->initial_amount, 2, ',', '.') }}</span>
+                                            <span class="px-2 py-0.5 rounded border text-[11px] font-medium {{ $gc->status === 'active' ? 'border-money-200 bg-money-50 text-money-800' : 'border-line bg-surface text-slate-600' }}">
+                                                {{ $gc->status === 'active' ? 'Ativo' : ($gc->status === 'redeemed' ? 'Resgatado' : 'Expirado') }}
+                                            </span>
+                                        </div>
+                                    </div>
+                                @endforeach
+                            </div>
+                        </div>
+                    @endif
+                </div>
+
+                <div class="rounded-xl border border-line bg-surface p-6 space-y-5">
+                    <div class="flex flex-wrap items-center justify-between gap-3 border-b border-line pb-4">
+                        <div class="flex items-center gap-2.5">
+                            <span class="h-9 w-9 rounded-lg bg-paper border border-line flex items-center justify-center shrink-0">
+                                <x-icon name="piggy-bank" class="size-4 text-money-600" />
+                            </span>
+                            <div>
+                                <x-eyebrow>Planejamento financeiro</x-eyebrow>
+                                <h2 class="text-base font-semibold text-ink">Cofrinho DigitalCard (Metas de Compra)</h2>
+                            </div>
+                        </div>
+
+                        <div class="text-right">
+                            <span class="text-[11px] text-slate-500 block">Total guardado</span>
+                            <span class="font-mono text-base font-bold tabular-nums text-money-700">
+                                R$ {{ number_format((float) ($savingsGoalsTotal ?? 0), 2, ',', '.') }}
+                            </span>
+                        </div>
+                    </div>
+
+                    <form action="{{ route('goals.store') }}" method="POST" class="grid grid-cols-1 sm:grid-cols-12 gap-2.5 text-xs bg-paper p-4 rounded-xl border border-line">
+                        @csrf
+                        @if(! empty($goalPresetProduct))
+                            <input type="hidden" name="product_id" value="{{ $goalPresetProduct->id }}">
+                        @endif
+                        <div class="sm:col-span-6">
+                            <label for="goal_name_input" class="block font-medium text-slate-700 mb-1">Nome da meta</label>
+                            <input id="goal_name_input" type="text" name="name" required maxlength="120"
+                                   value="{{ old('name', ! empty($goalPresetProduct) ? Str::limit('Meta: '.$goalPresetProduct->name, 110) : '') }}"
+                                   placeholder="Ex.: Setup Escritório ou Notebook"
+                                   class="block w-full rounded-lg border-line bg-surface py-2 px-3 text-xs">
+                        </div>
+                        <div class="sm:col-span-3">
+                            <label for="goal_target_input" class="block font-medium text-slate-700 mb-1">Valor-alvo (R$)</label>
+                            <input id="goal_target_input" type="number" name="target_amount" step="0.01" min="10.00" max="100000.00" inputmode="decimal" required
+                                   value="{{ old('target_amount', ! empty($goalPresetProduct) ? number_format((float) $goalPresetProduct->price, 2, '.', '') : '') }}"
+                                   placeholder="2500.00"
+                                   class="block w-full rounded-lg border-line bg-surface py-2 px-3 font-mono tabular-nums text-xs">
+                        </div>
+                        <div class="sm:col-span-3 flex items-end">
+                            <button type="submit"
+                                    class="w-full rounded-lg bg-ink hover:bg-slate-800 px-3 py-2 font-semibold text-paper transition">
+                                Criar meta
+                            </button>
+                        </div>
+                    </form>
+
+                    @if(isset($savingsGoals) && $savingsGoals->isNotEmpty())
+                        <div class="space-y-3">
+                            @foreach($savingsGoals as $goal)
+                                @php
+                                    $goalPct = $goal->progressPercent();
+                                @endphp
+                                <div class="rounded-xl border border-line bg-paper p-4 space-y-3 text-xs">
+                                    <div class="flex flex-wrap items-start justify-between gap-2">
+                                        <div class="min-w-0 space-y-0.5">
+                                            <div class="flex items-center gap-2 flex-wrap">
+                                                <h3 class="text-sm font-semibold text-ink">{{ $goal->name }}</h3>
+                                                @if($goal->completed_at)
+                                                    <span class="rounded bg-money-50 border border-money-200 px-2 py-0.5 text-[11px] font-semibold text-money-800">
+                                                        Meta 100% atingida!
+                                                    </span>
+                                                @endif
+                                            </div>
+                                            @if($goal->product)
+                                                <a href="{{ route('catalog.product', $goal->product->slug) }}" class="text-[11px] text-accent-700 hover:underline block truncate">
+                                                    Produto vinculado: {{ $goal->product->name }} →
+                                                </a>
+                                            @endif
+                                        </div>
+
+                                        <div class="text-right shrink-0">
+                                            <span class="font-mono font-bold tabular-nums text-ink">
+                                                R$ {{ number_format((float) $goal->current_amount, 2, ',', '.') }}
+                                            </span>
+                                            <span class="text-slate-500 font-mono tabular-nums">
+                                                / R$ {{ number_format((float) $goal->target_amount, 2, ',', '.') }} ({{ $goalPct }}%)
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    <div class="h-1.5 w-full rounded-full bg-surface border border-line overflow-hidden">
+                                        <div class="h-full bg-money-600 transition-all" style="width: {{ $goalPct }}%"></div>
+                                    </div>
+
+                                    <div class="flex flex-wrap items-center justify-between gap-2 pt-1">
+                                        <div class="flex flex-wrap items-center gap-2">
+                                            <form action="{{ route('goals.deposit', $goal) }}" method="POST" class="flex items-center gap-1.5">
+                                                @csrf
+                                                <label for="dep_goal_{{ $goal->id }}" class="sr-only">Guardar na meta {{ $goal->name }}</label>
+                                                <input id="dep_goal_{{ $goal->id }}" type="number" name="amount" step="0.01" min="1.00" max="50000.00" inputmode="decimal"
+                                                       required placeholder="R$ 100"
+                                                       class="w-24 rounded-md border-line bg-surface py-1.5 px-2 font-mono tabular-nums text-xs">
+                                                <button type="submit" class="rounded-md bg-money-600 hover:bg-money-700 px-3 py-1.5 font-semibold text-paper transition">
+                                                    Guardar
+                                                </button>
+                                            </form>
+
+                                            @if((float) $goal->current_amount > 0)
+                                                <form action="{{ route('goals.withdraw', $goal) }}" method="POST" class="flex items-center gap-1.5">
+                                                    @csrf
+                                                    <label for="wd_goal_{{ $goal->id }}" class="sr-only">Resgatar da meta {{ $goal->name }}</label>
+                                                    <input id="wd_goal_{{ $goal->id }}" type="number" name="amount" step="0.01" min="1.00" max="{{ (float) $goal->current_amount }}" inputmode="decimal"
+                                                           value="{{ number_format((float) $goal->current_amount, 2, '.', '') }}" required
+                                                           class="w-24 rounded-md border-line bg-surface py-1.5 px-2 font-mono tabular-nums text-xs">
+                                                    <button type="submit" class="rounded-md border border-line bg-surface hover:border-ink px-3 py-1.5 font-medium text-ink transition">
+                                                        Resgatar
+                                                    </button>
+                                                </form>
+                                            @endif
+                                        </div>
+
+                                        <form action="{{ route('goals.destroy', $goal) }}" method="POST">
+                                            @csrf
+                                            @method('DELETE')
+                                            <button type="submit" class="text-xs font-medium text-danger-600 hover:underline">
+                                                Excluir meta
+                                            </button>
+                                        </form>
+                                    </div>
+                                </div>
+                            @endforeach
+                        </div>
+                    @else
+                        <p class="text-xs text-slate-500 text-center py-2">
+                            Crie sua primeira meta para separar saldo do cartão e planejar grandes compras sem comprometer seu dia a dia.
+                        </p>
+                    @endif
+                </div>
+
                 <div class="overflow-hidden rounded-xl border border-line bg-surface">
                     <div class="flex flex-col justify-between gap-3 border-b border-line p-5 sm:flex-row sm:items-center">
                         <div>
                             <h3 id="ledger-table-caption" class="text-sm font-semibold text-ink">Extrato de movimentações</h3>
-                            <p class="text-xs text-slate-600 mt-0.5">Histórico de recargas, compras, cashback e estornos.</p>
+                            <p class="text-xs text-slate-600 mt-0.5">Histórico imutável de recargas, compras, transferências, vales e cashback.</p>
                         </div>
 
-                        <div class="inline-flex items-center rounded-lg bg-paper-dim p-1 text-xs font-medium">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <form action="{{ route('card.show') }}" method="GET" class="flex items-center">
+                                <label for="tx_type_filter" class="sr-only">Filtrar por natureza</label>
+                                <select id="tx_type_filter" name="tx_type" onchange="this.form.submit()"
+                                        class="rounded-lg border-line bg-paper text-xs text-ink py-1.5 pl-2.5 pr-7 focus:border-ink focus:ring-ink">
+                                    <option value="">Todas as naturezas</option>
+                                    @foreach($typeLabels as $typeKey => [$typeName])
+                                        <option value="{{ $typeKey }}" {{ ($selectedTxType ?? null) === $typeKey ? 'selected' : '' }}>
+                                            {{ $typeName }}
+                                        </option>
+                                    @endforeach
+                                </select>
+                            </form>
+
+                            <a href="{{ route('card.statement.csv') }}"
+                               class="inline-flex items-center gap-1.5 rounded-lg border border-line bg-paper hover:border-ink px-3 py-1.5 text-xs font-medium text-ink transition">
+                                <x-icon name="receipt" class="size-3.5 text-slate-500" />
+                                <span>Exportar CSV</span>
+                            </a>
+
+                            <div class="inline-flex items-center rounded-lg bg-paper-dim p-1 text-xs font-medium">
                             <button @click="txFilter = 'todas'" type="button"
                                     :class="txFilter === 'todas' ? 'bg-surface text-ink shadow-xs' : 'text-slate-600 hover:text-ink'"
                                     class="rounded-md px-3 py-1.5 transition">
-                                Todas ({{ $card->transactions->count() }})
+                                Todas ({{ $transactions->total() }})
                             </button>
                             <button @click="txFilter = 'entradas'" type="button"
                                     :class="txFilter === 'entradas' ? 'bg-money-600 text-paper shadow-xs' : 'text-slate-600 hover:text-ink'"
@@ -434,19 +893,14 @@
                                     class="rounded-md px-3 py-1.5 transition">
                                 Saídas
                             </button>
+                            </div>
                         </div>
                     </div>
 
                     <div class="md:hidden divide-y divide-line">
-                        @forelse($card->transactions as $transaction)
+                        @forelse($transactions as $transaction)
                             @php
                                 $isCredit = (float) $transaction->amount >= 0;
-                                $typeLabels = [
-                                    'recarga' => ['Recarga PIX', 'bg-money-50 text-money-700 border-money-200'],
-                                    'compra' => ['Compra Loja', 'bg-danger-50 text-danger-700 border-danger-200'],
-                                    'cashback' => ['Cashback', 'bg-accent-50 text-accent-800 border-accent-200'],
-                                    'estorno' => ['Estorno', 'bg-paper text-slate-700 border-line'],
-                                ];
                                 [$typeLabel, $typeClasses] = $typeLabels[$transaction->type] ?? [$transaction->type, 'bg-paper text-slate-600 border-line'];
                             @endphp
                             <div x-show="txFilter === 'todas' || (txFilter === 'entradas' && {{ $isCredit ? 'true' : 'false' }}) || (txFilter === 'saidas' && {{ ! $isCredit ? 'true' : 'false' }})"
@@ -479,15 +933,9 @@
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-line text-xs">
-                                @forelse($card->transactions as $transaction)
+                                @forelse($transactions as $transaction)
                                     @php
                                         $isCredit = (float) $transaction->amount >= 0;
-                                        $typeLabels = [
-                                            'recarga' => ['Recarga PIX', 'bg-money-50 text-money-700 border-money-200'],
-                                            'compra' => ['Compra Loja', 'bg-danger-50 text-danger-700 border-danger-200'],
-                                            'cashback' => ['Cashback', 'bg-accent-50 text-accent-800 border-accent-200'],
-                                            'estorno' => ['Estorno', 'bg-paper text-slate-700 border-line'],
-                                        ];
                                         [$typeLabel, $typeClasses] = $typeLabels[$transaction->type] ?? [$transaction->type, 'bg-paper text-slate-600 border-line'];
                                     @endphp
                                     <tr x-show="txFilter === 'todas' || (txFilter === 'entradas' && {{ $isCredit ? 'true' : 'false' }}) || (txFilter === 'saidas' && {{ ! $isCredit ? 'true' : 'false' }})"
@@ -514,21 +962,27 @@
                             </tbody>
                         </table>
                     </div>
+
+                    @if($transactions->hasPages())
+                        <div class="p-4 border-t border-line">
+                            {{ $transactions->links() }}
+                        </div>
+                    @endif
                 </div>
 
                 <div class="overflow-hidden rounded-xl border border-line bg-surface">
                     <div class="flex items-center justify-between border-b border-line p-5">
                         <div>
                             <h3 class="text-sm font-semibold text-ink">Histórico de recargas</h3>
-                            <p class="text-xs text-slate-600 mt-0.5">Acompanhe suas cobranças PIX simuladas e comprovantes enviados.</p>
+                            <p class="text-xs text-slate-600 mt-0.5">Acompanhe suas cobranças PIX e comprovantes enviados.</p>
                         </div>
                         <span class="px-2.5 py-1 rounded-md bg-paper-dim text-xs font-medium text-slate-700">
-                            {{ $card->recharges->count() }} {{ $card->recharges->count() === 1 ? 'registro' : 'registros' }}
+                            {{ $recharges->total() }} {{ $recharges->total() === 1 ? 'registro' : 'registros' }}
                         </span>
                     </div>
 
                     <div class="md:hidden divide-y divide-line">
-                        @forelse($card->recharges as $recharge)
+                        @forelse($recharges as $recharge)
                             <div class="p-4 space-y-1.5 text-xs">
                                 <div class="flex items-center justify-between">
                                     <span class="font-mono tabular-nums font-semibold text-ink">#REC-{{ str_pad((string) $recharge->id, 5, '0', STR_PAD_LEFT) }}</span>
@@ -538,7 +992,7 @@
                                 </div>
                                 <div class="flex items-center justify-between text-slate-500">
                                     <span>{{ $recharge->created_at->format('d/m/Y H:i') }}</span>
-                                    <span>{{ $recharge->status === 'aprovado' ? 'Aprovado' : ($recharge->status === 'recusado' ? 'Recusado' : 'Pendente') }}</span>
+                                    <span>{{ ucfirst($recharge->status) }}</span>
                                 </div>
                             </div>
                         @empty
@@ -558,7 +1012,7 @@
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-line text-xs">
-                                @forelse($card->recharges as $recharge)
+                                @forelse($recharges as $recharge)
                                     <tr class="transition hover:bg-paper/50">
                                         <td class="px-5 py-3.5 font-mono tabular-nums font-medium text-slate-700">
                                             #REC-{{ str_pad((string) $recharge->id, 5, '0', STR_PAD_LEFT) }}
@@ -574,7 +1028,7 @@
                                                     Ver comprovante
                                                 </a>
                                             @else
-                                                <span class="font-mono text-xs text-slate-600">{{ $recharge->txid ?? 'PIX Simulado' }}</span>
+                                                <span class="font-mono text-xs text-slate-600">{{ $recharge->txid ?? 'PIX' }}</span>
                                             @endif
                                         </td>
                                         <td class="px-5 py-3.5">
@@ -589,6 +1043,10 @@
                                                 @if ($recharge->admin_notes)
                                                     <span class="mt-1 block text-xs text-danger-600">Motivo: {{ $recharge->admin_notes }}</span>
                                                 @endif
+                                            @elseif ($recharge->status === 'expirado')
+                                                <span class="inline-flex items-center gap-1.5 rounded border border-line bg-paper px-2 py-0.5 text-xs font-medium text-slate-600">
+                                                    <span class="size-1.5 rounded-full bg-slate-400"></span> Expirado
+                                                </span>
                                             @else
                                                 <span class="inline-flex items-center gap-1.5 rounded border border-accent-200 bg-accent-50 px-2 py-0.5 text-xs font-medium text-accent-900">
                                                     <span class="size-1.5 rounded-full bg-accent-500"></span> Pendente
@@ -606,6 +1064,12 @@
                             </tbody>
                         </table>
                     </div>
+
+                    @if($recharges->hasPages())
+                        <div class="p-4 border-t border-line">
+                            {{ $recharges->links() }}
+                        </div>
+                    @endif
                 </div>
             </div>
         </div>

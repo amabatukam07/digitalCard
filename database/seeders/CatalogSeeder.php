@@ -4,7 +4,10 @@ namespace Database\Seeders;
 
 use App\Models\Category;
 use App\Models\Product;
+use App\Models\ProductBundle;
+use App\Models\ProductBundleItem;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\Cache;
 
 class CatalogSeeder extends Seeder
 {
@@ -652,12 +655,619 @@ class CatalogSeeder extends Seeder
             ],
         ];
 
+        $escritorio = Category::updateOrCreate(
+            ['slug' => 'escritorio-ergonomia'],
+            ['name' => 'Escritório & Ergonomia', 'parent_id' => null, 'icon' => 'armchair']
+        );
+        $cadeirasErgonomicas = Category::updateOrCreate(
+            ['slug' => 'cadeiras-ergonomicas'],
+            ['name' => 'Cadeiras Ergonômicas', 'parent_id' => $escritorio->id, 'icon' => 'armchair']
+        );
+        $mesasIluminacao = Category::updateOrCreate(
+            ['slug' => 'mesas-iluminacao-setup'],
+            ['name' => 'Mesas & Iluminação', 'parent_id' => $escritorio->id, 'icon' => 'lightbulb']
+        );
+
+        $audioPro = Category::updateOrCreate(
+            ['slug' => 'audio-pro-criacao'],
+            ['name' => 'Áudio Pro & Criação', 'parent_id' => null, 'icon' => 'mic']
+        );
+        $microfonesInterfaces = Category::updateOrCreate(
+            ['slug' => 'microfones-interfaces'],
+            ['name' => 'Microfones & Interfaces', 'parent_id' => $audioPro->id, 'icon' => 'mic']
+        );
+        $streamingAcessorios = Category::updateOrCreate(
+            ['slug' => 'streaming-acessorios'],
+            ['name' => 'Streaming & Studio', 'parent_id' => $audioPro->id, 'icon' => 'sliders-horizontal']
+        );
+
+        $mobilidadeEnergia = Category::updateOrCreate(
+            ['slug' => 'mobilidade-energia'],
+            ['name' => 'Mobilidade & Energia', 'parent_id' => null, 'icon' => 'battery-charging']
+        );
+        $powerBanksCarregadores = Category::updateOrCreate(
+            ['slug' => 'power-banks-carregadores'],
+            ['name' => 'Carregadores & Energia', 'parent_id' => $mobilidadeEnergia->id, 'icon' => 'battery-charging']
+        );
+        $mochilasCases = Category::updateOrCreate(
+            ['slug' => 'mochilas-cases'],
+            ['name' => 'Mochilas & Proteção', 'parent_id' => $mobilidadeEnergia->id, 'icon' => 'package']
+        );
+
+        $extraProducts = [
+            // --- ESCRITÓRIO & ERGONOMIA ---
+            [
+                'category_id' => $cadeirasErgonomicas->id,
+                'slug' => 'cadeira-ergonomica-herman-miller-aeron',
+                'name' => 'Cadeira Ergonômica Herman Miller Aeron Grafite (Tamanho B)',
+                'description' => 'Referência mundial em ergonomia corporativa com tela Pellicle respirável de 8 zonas de tensão, suporte lombar PostureFit SL e mecanismo Harmonic 2 de inclinação equilibrada.',
+                'price' => 6890.00,
+                'compare_at_price' => 7990.00,
+                'cashback_percent' => 6.00,
+                'stock' => 6,
+            ],
+            [
+                'category_id' => $cadeirasErgonomicas->id,
+                'slug' => 'cadeira-ergonomica-elements-astra-pro',
+                'name' => 'Cadeira Ergonômica Elements Astra Pro em Mesh com Apoio de Cabeça',
+                'description' => 'Encosto em tela mesh de alta elasticidade, ajuste lombar independente, braços 3D com acabamento macio e base em alumínio reforçado para longas jornadas de trabalho.',
+                'price' => 1899.00,
+                'compare_at_price' => 2299.00,
+                'cashback_percent' => 8.00,
+                'stock' => 22,
+            ],
+            [
+                'category_id' => $mesasIluminacao->id,
+                'slug' => 'mesa-regulavel-eletrica-geniodesks-pro',
+                'name' => 'Mesa com Regulagem Elétrica de Altura GenioDesks Pro Nogueira',
+                'description' => 'Estrutura com motor duplo silencioso, controlador digital com 4 memórias de altura (62cm a 127cm), tampo amplo em nogueira fosca e calha organizadora de cabos.',
+                'price' => 2890.00,
+                'compare_at_price' => 3490.00,
+                'cashback_percent' => 7.00,
+                'stock' => 11,
+            ],
+            [
+                'category_id' => $mesasIluminacao->id,
+                'slug' => 'luminaria-monitor-benq-screenbar-halo',
+                'name' => 'Luminária de Monitor BenQ ScreenBar Halo com Controle Sem Fio',
+                'description' => 'Iluminação assimétrica sem reflexos na tela, retroiluminação ambiente traseira para conforto ocular, sensor automático de luz e disco giratório wireless em alumínio.',
+                'price' => 1190.00,
+                'compare_at_price' => 1390.00,
+                'cashback_percent' => 8.00,
+                'stock' => 19,
+            ],
+            [
+                'category_id' => $mesasIluminacao->id,
+                'slug' => 'suporte-articulado-duplo-elg-f160n',
+                'name' => 'Suporte Articulado Duplo com Pistão a Gás ELG F160N (17" a 35")',
+                'description' => 'Braços articulados independentes com pistão a gás, rotação 360° retrato/paisagem, suporte VESA 75x75/100x100mm e passa-cabos integrado para setup limpo.',
+                'price' => 349.00,
+                'compare_at_price' => 449.00,
+                'cashback_percent' => 9.00,
+                'stock' => 45,
+            ],
+            [
+                'category_id' => $mesasIluminacao->id,
+                'slug' => 'dock-station-anker-575-usbc-13em1',
+                'name' => 'Dock Station Anker 575 USB-C 13-em-1 com Power Delivery 85W',
+                'description' => 'Centralize até 3 monitores (HDMI duplo 4K + DisplayPort), Gigabit Ethernet, leitor SD/microSD UHS-I e carregamento rápido de até 85W no notebook via único cabo USB-C.',
+                'price' => 1490.00,
+                'compare_at_price' => 1790.00,
+                'cashback_percent' => 7.00,
+                'stock' => 17,
+            ],
+
+            // --- ÁUDIO PRO & CRIAÇÃO ---
+            [
+                'category_id' => $microfonesInterfaces->id,
+                'slug' => 'microfone-dinamico-shure-sm7db',
+                'name' => 'Microfone Dinâmico Broadcast Shure SM7dB com Pré-Amplificador Ativo',
+                'description' => 'Lendária cápsula cardióide SM7B agora com pré-amplificador embutido de até +28dB desenhado com a Shure, chave bypass e filtros de presença para vocais e podcasts.',
+                'price' => 3790.00,
+                'compare_at_price' => 4290.00,
+                'cashback_percent' => 5.00,
+                'stock' => 9,
+            ],
+            [
+                'category_id' => $microfonesInterfaces->id,
+                'slug' => 'microfone-usb-hyperx-quadcast-s',
+                'name' => 'Microfone Condensador USB HyperX QuadCast S RGB com Shock Mount',
+                'description' => 'Quatro padrões polares selecionáveis (estéreo, omnidirecional, cardióide e bidirecional), sensor toque-para-silenciar com LED indicativo, filtro pop interno e suporte antivibração.',
+                'price' => 849.00,
+                'compare_at_price' => 1049.00,
+                'cashback_percent' => 10.00,
+                'stock' => 32,
+            ],
+            [
+                'category_id' => $microfonesInterfaces->id,
+                'slug' => 'interface-audio-focusrite-scarlett-2i2-4g',
+                'name' => 'Interface de Áudio Focusrite Scarlett 2i2 4ª Geração USB-C',
+                'description' => 'Dois pré-amplificadores de baixíssimo ruído com 69dB de ganho, faixa dinâmica de 120dB, modos Auto Gain e Clip Safe automáticos e circuito Air analógico atualizado.',
+                'price' => 1590.00,
+                'compare_at_price' => 1890.00,
+                'cashback_percent' => 6.00,
+                'stock' => 18,
+            ],
+            [
+                'category_id' => $streamingAcessorios->id,
+                'slug' => 'elgato-stream-deck-mk2-15-teclas',
+                'name' => 'Controlador Elgato Stream Deck MK.2 com 15 Teclas LCD Personalizáveis',
+                'description' => 'Automação instantânea de fluxos de trabalho, atalhos de edição, cenas do OBS, áudio e iluminação com 15 teclas LCD dinâmicas, cabo USB-C removível e suporte inclinado.',
+                'price' => 1149.00,
+                'compare_at_price' => 1349.00,
+                'cashback_percent' => 8.00,
+                'stock' => 24,
+            ],
+            [
+                'category_id' => $streamingAcessorios->id,
+                'slug' => 'placa-captura-elgato-hd60-x-4k60',
+                'name' => 'Placa de Captura Externa Elgato HD60 X 4K60 HDR10 com VRR Passthrough',
+                'description' => 'Capture gameplay ou câmeras em 4K30 / 1080p60 HDR10 com latência ultrabaixa e passthrough HDMI 2.0 4K60 / 1440p120 compatível com VRR em PC, Mac, PS5 e Xbox.',
+                'price' => 1399.00,
+                'compare_at_price' => 1649.00,
+                'cashback_percent' => 7.00,
+                'stock' => 16,
+            ],
+            [
+                'category_id' => $streamingAcessorios->id,
+                'slug' => 'painel-led-elgato-key-light-air',
+                'name' => 'Painel de Luz LED Wi-Fi Elgato Key Light Air 1400 Lúmens com Base',
+                'description' => 'Iluminação difusa de 1400 lúmens sem brilho direto nos olhos, temperatura ajustável entre 2900K e 7000K via app Wi-Fi, CRI > 92% e pedestal telescópico de mesa.',
+                'price' => 999.00,
+                'compare_at_price' => 1199.00,
+                'cashback_percent' => 9.00,
+                'stock' => 20,
+            ],
+
+            // --- MOBILIDADE & ENERGIA ---
+            [
+                'category_id' => $powerBanksCarregadores->id,
+                'slug' => 'power-bank-anker-prime-27650mah-250w',
+                'name' => 'Power Bank Anker Prime 27.650mAh 250W PD 3.1 com Tela OLED',
+                'description' => 'Capacidade aprovada para cabine de avião (99.54Wh), duas portas USB-C de até 140W cada, recarga total em 37 minutos via dupla entrada USB-C e visor digital de potência em tempo real.',
+                'price' => 1099.00,
+                'compare_at_price' => 1299.00,
+                'cashback_percent' => 8.00,
+                'stock' => 21,
+            ],
+            [
+                'category_id' => $powerBanksCarregadores->id,
+                'slug' => 'carregador-gan-ugreen-nexode-pro-100w',
+                'name' => 'Carregador GaN Rápido UGREEN Nexode Pro 100W 3 Portas USB-C/USB-A',
+                'description' => 'Chip GaNInfinity compacto de alta eficiência energética capaz de alimentar um MacBook Pro em alta velocidade simultaneamente com smartphone e fones sem superaquecimento.',
+                'price' => 399.00,
+                'compare_at_price' => 499.00,
+                'cashback_percent' => 10.00,
+                'stock' => 50,
+            ],
+            [
+                'category_id' => $powerBanksCarregadores->id,
+                'slug' => 'estacao-energia-ecoflow-river-2-pro',
+                'name' => 'Estação de Energia Portátil EcoFlow RIVER 2 Pro 768Wh LiFePO4 800W',
+                'description' => 'Bateria LiFePO4 de longa vida útil (+3000 ciclos), carga completa em apenas 70 minutos na tomada AC, inversor X-Boost de até 1600W e monitoramento inteligente via aplicativo.',
+                'price' => 4690.00,
+                'compare_at_price' => 5390.00,
+                'cashback_percent' => 6.00,
+                'stock' => 8,
+            ],
+            [
+                'category_id' => $mochilasCases->id,
+                'slug' => 'mochila-peak-design-everyday-20l-v2',
+                'name' => 'Mochila Técnica Peak Design Everyday Backpack V2 20L Cinza Ash',
+                'description' => 'Acesso superior magnético MagLatch, aberturas laterais totais com zíperes selados à prova d\'água, divisórias FlexFold modulares para câmera e compartimento dedicado para notebook 16".',
+                'price' => 1790.00,
+                'compare_at_price' => 2090.00,
+                'cashback_percent' => 7.00,
+                'stock' => 14,
+            ],
+            [
+                'category_id' => $mochilasCases->id,
+                'slug' => 'mochila-executiva-samsonite-ikonn-15',
+                'name' => 'Mochila Executiva Samsonite Ikonn para Notebook até 15.6" Preto',
+                'description' => 'Design corporativo minimalista em poliéster balístico de alta resistência, bolso frontal organizador com acesso rápido, alça carona para malas de bordo e costado acolchoado.',
+                'price' => 549.00,
+                'compare_at_price' => 699.00,
+                'cashback_percent' => 12.00,
+                'stock' => 38,
+            ],
+
+            // --- EXPANSÃO CASA, ELETRÔNICOS, INFORMÁTICA, GAMES & CÂMERAS ---
+            [
+                'category_id' => $eletrodomesticos->id,
+                'slug' => 'robo-aspirador-roborock-q-revo',
+                'name' => 'Robô Aspirador e Passa Pano Roborock Q Revo com Base Autolimpante',
+                'description' => 'Sucção HyperForce de 5500Pa, dois mops giratórios com elevação automática em tapetes, mapeamento LiDAR PreciSense 3D e estação multifunções que lava e seca os panos com ar quente.',
+                'price' => 4990.00,
+                'compare_at_price' => 5890.00,
+                'cashback_percent' => 6.00,
+                'stock' => 9,
+            ],
+            [
+                'category_id' => $eletrodomesticos->id,
+                'slug' => 'cafeteira-delonghi-magnifica-start',
+                'name' => 'Cafeteira Espresso Superautomática De\'Longhi Magnifica Start Inox',
+                'description' => 'Moedor cônico em aço com 13 níveis de moagem na hora, preparo de espresso, café longo e vaporizador tradicional de aço inox para espumar leite com acabamento cremoso.',
+                'price' => 3690.00,
+                'compare_at_price' => 4290.00,
+                'cashback_percent' => 7.00,
+                'stock' => 12,
+            ],
+            [
+                'category_id' => $eletrodomesticos->id,
+                'slug' => 'purificador-ar-xiaomi-smart-4-pro',
+                'name' => 'Purificador de Ar Inteligente Xiaomi Smart Air Purifier 4 Pro HEPA',
+                'description' => 'Filtragem 3-em-1 que retém 99,97% das partículas de 0,3 mícron (CADR 500m³/h para até 60m²), sensor laser PM2.5/PM10 de alta precisão e visor OLED touch frontal.',
+                'price' => 1690.00,
+                'compare_at_price' => 1990.00,
+                'cashback_percent' => 8.00,
+                'stock' => 16,
+            ],
+            [
+                'category_id' => $seguranca->id,
+                'slug' => 'roteador-mesh-tplink-deco-xe75-kit2',
+                'name' => 'Sistema Wi-Fi 6E Mesh TP-Link Deco XE75 Tri-Band AXE5400 (Kit com 2)',
+                'description' => 'Cobertura contínua para até 510m² e 200 dispositivos conectados com banda exclusiva de 6GHz livre de interferências, IA Mesh adaptativa e segurança HomeShield integrada.',
+                'price' => 1899.00,
+                'compare_at_price' => 2299.00,
+                'cashback_percent' => 7.00,
+                'stock' => 15,
+            ],
+            [
+                'category_id' => $smartphones->id,
+                'slug' => 'smartphone-motorola-edge-50-ultra-512gb',
+                'name' => 'Smartphone Motorola Edge 50 Ultra 5G 512GB 12GB RAM Snapdragon 8s Gen 3',
+                'description' => 'Tela pOLED Super HD de 144Hz validada pela Pantone, conjunto triplo com teleobjetiva periscópica de 64MP 3x óptico, corpo com acabamento premium e TurboPower 125W.',
+                'price' => 4299.00,
+                'compare_at_price' => 4999.00,
+                'cashback_percent' => 8.00,
+                'stock' => 14,
+            ],
+            [
+                'category_id' => $audio->id,
+                'slug' => 'soundbar-jbl-bar-800-dolby-atmos',
+                'name' => 'Soundbar JBL Bar 800 Pro 720W RMS Dolby Atmos 5.1.2 com Subwoofer 10"',
+                'description' => 'Áudio espacial tridimensional real com caixas traseiras destacáveis a bateria recarregável, subwoofer sem fio de 10 polegadas, HDMI eARC 4K Dolby Vision e tecnologia PureVoice.',
+                'price' => 4490.00,
+                'compare_at_price' => 5190.00,
+                'cashback_percent' => 6.00,
+                'stock' => 10,
+            ],
+            [
+                'category_id' => $tablets->id,
+                'slug' => 'kindle-scribe-32gb-caneta-premium',
+                'name' => 'Amazon Kindle Scribe 32GB Tela Paperwhite 10.2" + Caneta Premium',
+                'description' => 'Leitor e bloco de notas digital com tela de 300 ppi sem reflexo e textura de papel real para leitura imersiva, anotações em PDFs e cadernos organizados na nuvem.',
+                'price' => 2790.00,
+                'compare_at_price' => 3190.00,
+                'cashback_percent' => 7.00,
+                'stock' => 13,
+            ],
+            [
+                'category_id' => $notebooks->id,
+                'slug' => 'apple-mac-mini-m4-16gb-512gb',
+                'name' => 'Apple Mac mini Chip M4 (CPU 10-Core, 16GB RAM, SSD 512GB) Prateado',
+                'description' => 'Computador desktop ultracompacto de 12,7cm com chip Apple M4 para produtividade e IA, 3 portas Thunderbolt 4 traseiras, 2 USB-C frontais e HDMI 2.1 nativo para múltiplos monitores.',
+                'price' => 5299.00,
+                'compare_at_price' => 5999.00,
+                'cashback_percent' => 5.00,
+                'stock' => 11,
+            ],
+            [
+                'category_id' => $monitores->id,
+                'slug' => 'monitor-lg-dualup-28-ergo-qhd',
+                'name' => 'Monitor Ergonômico LG DualUp 28" SDQHD Nano IPS 16:18 com Braço Ergo',
+                'description' => 'Proporção vertical 16:18 equivalente a dois monitores QHD empilhados sem emenda, cobertura DCI-P3 98%, porta USB-C com carga de 90W e suporte articulado de fixação na borda da mesa.',
+                'price' => 3890.00,
+                'compare_at_price' => 4490.00,
+                'cashback_percent' => 6.00,
+                'stock' => 9,
+            ],
+            [
+                'category_id' => $armazenamento->id,
+                'slug' => 'nas-synology-diskstation-ds224-plus',
+                'name' => 'Servidor NAS Synology DiskStation DS224+ 2 Baias Intel Celeron J4125',
+                'description' => 'Nuvem privada corporativa e doméstica de 2 baias hot-swap com sistema DSM, sincronização segura de arquivos, backup automatizado de fotos e suporte a Btrfs com snapshots.',
+                'price' => 2890.00,
+                'compare_at_price' => 3390.00,
+                'cashback_percent' => 5.00,
+                'stock' => 10,
+            ],
+            [
+                'category_id' => $consoles->id,
+                'slug' => 'console-portatil-asus-rog-ally-x-1tb',
+                'name' => 'Console Portátil ASUS ROG Ally X AMD Ryzen Z1 Extreme 24GB 1TB SSD',
+                'description' => 'Tela Full HD IPS de 120Hz com FreeSync Premium, 24GB RAM LPDDR5X rápida, superbateria de 80Wh, dupla entrada USB-C (uma USB4) e ergonômia redesenhada para sessões prolongadas.',
+                'price' => 5699.00,
+                'compare_at_price' => 6499.00,
+                'cashback_percent' => 5.00,
+                'stock' => 12,
+            ],
+            [
+                'category_id' => $consoles->id,
+                'slug' => 'oculos-vr-meta-quest-3-512gb',
+                'name' => 'Headset de Realidade Mista Meta Quest 3 512GB Standalone 4K+',
+                'description' => 'Lentes pancake ultrafinas, resolução Infinite Display de 2064x2208 por olho, passthrough colorido em alta definição e dois controles Touch Plus sem anel com retorno háptico TruTouch.',
+                'price' => 4399.00,
+                'compare_at_price' => 4999.00,
+                'cashback_percent' => 6.00,
+                'stock' => 14,
+            ],
+            [
+                'category_id' => $camerasAcao->id,
+                'slug' => 'camera-dji-osmo-pocket-3-creator-combo',
+                'name' => 'Câmera Gimbal de Bolso DJI Osmo Pocket 3 Creator Combo 4K120 1"',
+                'description' => 'Sensor CMOS de 1 polegada com D-Log M de 10 bits, tela OLED giratória de 2 polegadas, estabilização mecânica de 3 eixos e kit completo com transmissor sem fio DJI Mic 2 e mini tripé.',
+                'price' => 4590.00,
+                'compare_at_price' => 5190.00,
+                'cashback_percent' => 5.00,
+                'stock' => 11,
+            ],
+        ];
+
+        $saudeBemEstar = Category::updateOrCreate(
+            ['slug' => 'saude-bem-estar-tech'],
+            ['name' => 'Saúde & Bem-Estar Tech', 'parent_id' => null, 'icon' => 'heart-pulse']
+        );
+        $monitoramentoFitness = Category::updateOrCreate(
+            ['slug' => 'monitoramento-fitness'],
+            ['name' => 'Monitoramento & Fitness', 'parent_id' => $saudeBemEstar->id, 'icon' => 'heart-pulse']
+        );
+        $cuidadosPessoaisTech = Category::updateOrCreate(
+            ['slug' => 'cuidados-pessoais-tech'],
+            ['name' => 'Cuidados Pessoais Tech', 'parent_id' => $saudeBemEstar->id, 'icon' => 'sparkles']
+        );
+
+        $wave2Products = [
+            // --- SAÚDE & BEM-ESTAR TECH ---
+            [
+                'category_id' => $monitoramentoFitness->id,
+                'slug' => 'balanca-bioimpedancia-withings-body-smart',
+                'name' => 'Balança Inteligente Withings Body Smart com Bioimpedância e Wi-Fi',
+                'description' => 'Análise corporal avançada por multifrequência (massa muscular, gordura visceral, água corporal e TMB), frequência cardíaca em pé, modo atleta e sincronização automática Wi-Fi/Bluetooth.',
+                'price' => 899.00,
+                'compare_at_price' => 1099.00,
+                'cashback_percent' => 9.00,
+                'stock' => 18,
+            ],
+            [
+                'category_id' => $monitoramentoFitness->id,
+                'slug' => 'anel-inteligente-samsung-galaxy-ring',
+                'name' => 'Anel Inteligente Samsung Galaxy Ring Titânio Preto com Estojo',
+                'description' => 'Estrutura ultraleve em titânio grau 5 com apenas 2,3g, resistência IP68 / 10ATM, sensores contínuos de sono, frequência cardíaca, temperatura da pele e pontuação diária de energia com Galaxy AI.',
+                'price' => 2999.00,
+                'compare_at_price' => 3499.00,
+                'cashback_percent' => 8.00,
+                'stock' => 14,
+            ],
+            [
+                'category_id' => $cuidadosPessoaisTech->id,
+                'slug' => 'pistola-massageadora-theragun-relief',
+                'name' => 'Massageador Percussivo Theragun Relief Terapia Muscular Silenciosa',
+                'description' => 'Terapia percussiva ergonômica com empunhadura triangular patenteada, 3 níveis de velocidade confortáveis, pontas macias para recuperação diária e funcionamento ultrassilencioso QuietForce.',
+                'price' => 1190.00,
+                'compare_at_price' => 1449.00,
+                'cashback_percent' => 10.00,
+                'stock' => 20,
+            ],
+            [
+                'category_id' => $cuidadosPessoaisTech->id,
+                'slug' => 'escova-eletrica-oral-b-io-series-9',
+                'name' => 'Escova Dental Elétrica Oral-B iO Series 9 com IA 3D e Estojo Carregador',
+                'description' => 'Microvibrações magnéticas silenciosas combinadas com detecção inteligente de 16 superfícies dentárias via Bluetooth, 7 modos de escovação, visor OLED colorido e sensor inteligente de pressão.',
+                'price' => 1890.00,
+                'compare_at_price' => 2290.00,
+                'cashback_percent' => 11.00,
+                'stock' => 15,
+            ],
+            [
+                'category_id' => $cuidadosPessoaisTech->id,
+                'slug' => 'secador-cabelo-dyson-supersonic-hd15',
+                'name' => 'Secador de Cabelos Dyson Supersonic HD15 Motor Digital V9 Difusor Flyaway',
+                'description' => 'Motor digital V9 de 110.000 rpm no cabo para equilíbrio ergonômico, controle térmico inteligente 40x por segundo que evita danos por calor extremo e ponteiras magnéticas incluindo acessório antifrizz.',
+                'price' => 3390.00,
+                'compare_at_price' => 3890.00,
+                'cashback_percent' => 7.00,
+                'stock' => 9,
+            ],
+
+            // --- EXPANSÃO ESCRITÓRIO, INFORMÁTICA, ÁUDIO PRO, GAMES, CASA & CÂMERAS ---
+            [
+                'category_id' => $perifericos->id,
+                'slug' => 'teclado-mecanico-keychron-q1-pro',
+                'name' => 'Teclado Mecânico Customizado Keychron Q1 Pro 75% CNC Alumínio Wireless',
+                'description' => 'Chassi usinado em alumínio maciço 6063 com gasket mount duplo, compatível com QMK/VIA, Bluetooth 5.1 multi-host para Mac/Windows, switches hot-swappable e knob rotativo programável.',
+                'price' => 1490.00,
+                'compare_at_price' => 1790.00,
+                'cashback_percent' => 8.00,
+                'stock' => 16,
+            ],
+            [
+                'category_id' => $streamingAcessorios->id,
+                'slug' => 'webcam-insta360-link-2-4k-ia',
+                'name' => 'Webcam Profissional Insta360 Link 2 4K Gimbal 2 Eixos Rastreamento IA',
+                'description' => 'Sensor CMOS 1/2" com HDR natural, gimbal motorizado silencioso com auto-enquadramento de apresentador, foco ultrarrápido PDAF, modo DeskView superior e microfones com cancelamento de ruído IA.',
+                'price' => 1590.00,
+                'compare_at_price' => 1890.00,
+                'cashback_percent' => 9.00,
+                'stock' => 14,
+            ],
+            [
+                'category_id' => $armazenamento->id,
+                'slug' => 'ssd-externo-samsung-t9-2tb-usb32',
+                'name' => 'SSD Portátil Samsung T9 2TB USB 3.2 Gen 2x2 até 2.000 MB/s Preto',
+                'description' => 'Transferências sustentadas de até 2.000 MB/s ideais para edição 4K/ProRes direta no drive, carcaça emborrachada resistente a quedas de 3m, Dynamic Thermal Guard e criptografia AES 256-bit.',
+                'price' => 1790.00,
+                'compare_at_price' => 2149.00,
+                'cashback_percent' => 8.00,
+                'stock' => 22,
+            ],
+            [
+                'category_id' => $acessoriosGamer->id,
+                'slug' => 'volante-gamer-logitech-g923-trueforce',
+                'name' => 'Volante Gamer Logitech G923 TRUEFORCE Force Feedback com Pedais (PS5/PC)',
+                'description' => 'Tecnologia de resposta háptica TRUEFORCE ligada em tempo real à física dos jogos, embreagem dupla programável, aro revestido em couro costurado à mão e pedal de freio progressivo.',
+                'price' => 2499.00,
+                'compare_at_price' => 2899.00,
+                'cashback_percent' => 7.00,
+                'stock' => 12,
+            ],
+            [
+                'category_id' => $acessoriosGamer->id,
+                'slug' => 'headset-gamer-steelseries-arctis-nova-pro',
+                'name' => 'Headset Wireless SteelSeries Arctis Nova Pro ANC Base DAC Duas Baterias',
+                'description' => 'Cancelamento ativo de ruído híbrido de 4 microfones, sistema infinito Hot-Swap com 2 baterias incluídas, conexão simultânea 2.4GHz + Bluetooth e transmissor OLED multifunção.',
+                'price' => 2690.00,
+                'compare_at_price' => 3190.00,
+                'cashback_percent' => 8.00,
+                'stock' => 11,
+            ],
+            [
+                'category_id' => $seguranca->id,
+                'slug' => 'fechadura-digital-intelbras-ifr-7000',
+                'name' => 'Fechadura Smart Wi-Fi de Embutir Intelbras IFR 7000 Biométrica Tuya',
+                'description' => 'Abertura via impressão digital de alta velocidade, senha numérica touch, tag RFID, chave física e aplicativo remoto Wi-Fi compatível com Alexa e Google Assistente com travamento automático.',
+                'price' => 1690.00,
+                'compare_at_price' => 1990.00,
+                'cashback_percent' => 10.00,
+                'stock' => 17,
+            ],
+            [
+                'category_id' => $assistentesHubs->id,
+                'slug' => 'projetor-portatil-samsung-the-freestyle-2',
+                'name' => 'Projetor Smart Portátil Samsung The Freestyle 2ª Geração Full HD 100"',
+                'description' => 'Projeção inteligente de 30" a 100" em base giratória 180°, foco e nivelamento automáticos instantâneos, Tizen OS com apps de streaming e Gaming Hub além de som 360° integrado.',
+                'price' => 3490.00,
+                'compare_at_price' => 4190.00,
+                'cashback_percent' => 7.00,
+                'stock' => 10,
+            ],
+            [
+                'category_id' => $camerasAcao->id,
+                'slug' => 'camera-360-insta360-x4-8k',
+                'name' => 'Câmera de Ação 360° Insta360 X4 8K30 Vídeo Imersivo Á Prova D\'Água 10m',
+                'description' => 'Gravação em 8K30 e 5.7K60 360° com efeito bastão invisível, estabilização FlowState superior, bateria de 2290mAh até 135 minutos e protetores de lente removíveis de instalação rápida.',
+                'price' => 3590.00,
+                'compare_at_price' => 4190.00,
+                'cashback_percent' => 6.00,
+                'stock' => 11,
+            ],
+            [
+                'category_id' => $tablets->id,
+                'slug' => 'kindle-colorsoft-signature-32gb',
+                'name' => 'Amazon Kindle Colorsoft Signature Edition 32GB Tela Colorida Antirreflexo',
+                'description' => 'Tela Colorsoft de 7 polegadas com contraste elevado para capas, gráficos e destaques em cores, ajuste automático da iluminação frontal, recarga sem fio e até 8 semanas de bateria.',
+                'price' => 1690.00,
+                'compare_at_price' => 1990.00,
+                'cashback_percent' => 9.00,
+                'stock' => 19,
+            ],
+            [
+                'category_id' => $mesasIluminacao->id,
+                'slug' => 'fita-led-philips-hue-gradient-2m',
+                'name' => 'Fita LED Inteligente Philips Hue Ambiance Gradient 2m Base Kit RGBWW',
+                'description' => 'Degradê suave multicolorido endereçável em toda a extensão da fita, 16 milhões de cores + brancos puros reguláveis para setups de escritório e sincronização via Bluetooth ou Hue Bridge.',
+                'price' => 799.00,
+                'compare_at_price' => 999.00,
+                'cashback_percent' => 11.00,
+                'stock' => 26,
+            ],
+        ];
+
+        $products = array_merge($products, $extraProducts, $wave2Products);
+
+        Cache::forget('nav_categories_tree');
+
+        $productsBySlug = [];
         foreach ($products as $productData) {
             $productData['image_path'] = '/images/products/'.$productData['slug'].'.webp';
-            Product::updateOrCreate(
+            $savedProduct = Product::updateOrCreate(
                 ['slug' => $productData['slug']],
                 array_merge($productData, ['is_active' => true])
             );
+            $productsBySlug[$productData['slug']] = $savedProduct;
+        }
+
+        // Kits & Setups Prontos
+        $bundlesData = [
+            [
+                'slug' => 'kit-home-office-executivo',
+                'name' => 'Kit Home Office Executivo Completo',
+                'subtitle' => 'Ergonomia elétrica, braço duplo e iluminação inteligente para 8h+ produtivas.',
+                'description' => 'Combinação curada com Mesa Regulável Elétrica GenioDesks Pro, Cadeira Ergonômica Elements Astra Pro, Luminária BenQ ScreenBar Halo e Fita LED Philips Hue Gradient para um ambiente corporativo impecável.',
+                'badge' => 'Setup Executivo',
+                'recommended_coupon_code' => 'SETUP15',
+                'items' => [
+                    'mesa-regulavel-eletrica-geniodesks-pro' => 1,
+                    'cadeira-ergonomica-elements-astra-pro' => 1,
+                    'luminaria-monitor-benq-screenbar-halo' => 1,
+                    'fita-led-philips-hue-gradient-2m' => 1,
+                ],
+            ],
+            [
+                'slug' => 'estudio-podcast-streaming-pro',
+                'name' => 'Estúdio Podcast & Streaming Pro',
+                'subtitle' => 'Captação vocal broadcast, interface Scarlett 4ª geração, vídeo 4K e automação.',
+                'description' => 'Tudo para gravações, transmissões ao vivo e reuniões com qualidade de estúdio: Shure SM7dB, Focusrite Scarlett 2i2 4ª Geração, Stream Deck MK.2, Key Light Air e Webcam Insta360 Link 2 4K.',
+                'badge' => 'Criadores Pro',
+                'recommended_coupon_code' => 'TECH100',
+                'items' => [
+                    'microfone-dinamico-shure-sm7db' => 1,
+                    'interface-audio-focusrite-scarlett-2i2-4g' => 1,
+                    'elgato-stream-deck-mk2-15-teclas' => 1,
+                    'painel-led-elgato-key-light-air' => 1,
+                    'webcam-insta360-link-2-4k-ia' => 1,
+                ],
+            ],
+            [
+                'slug' => 'setup-dev-apple-m4',
+                'name' => 'Workstation Compacta Apple M4 DualUp',
+                'subtitle' => 'Desempenho desktop silencioso com tela vertical 16:18 e teclado customizado.',
+                'description' => 'Estação enxuta e silenciosa para engenharia de software e criação: Mac mini M4 16GB/512GB, Monitor Ergonômico LG DualUp 28" com Braço Ergo, Teclado Keychron Q1 Pro e Dock Anker 575 13-em-1.',
+                'badge' => 'Engenharia & Tech',
+                'recommended_coupon_code' => 'DIGITAL10',
+                'items' => [
+                    'apple-mac-mini-m4-16gb-512gb' => 1,
+                    'monitor-lg-dualup-28-ergo-qhd' => 1,
+                    'teclado-mecanico-keychron-q1-pro' => 1,
+                    'dock-station-anker-575-usbc-13em1' => 1,
+                ],
+            ],
+            [
+                'slug' => 'kit-viagem-trabalho-remoto',
+                'name' => 'Kit Mobilidade & Trabalho Remoto',
+                'subtitle' => 'Energia 250W liberada para avião, carregador GaN 100W, SSD ultrarrápido e proteção.',
+                'description' => 'Autonomia completa fora do escritório com Mochila Peak Design 20L, Power Bank Anker Prime 250W, Carregador UGREEN Nexode Pro 100W e SSD Portátil Samsung T9 2TB.',
+                'badge' => 'Nômade Digital',
+                'recommended_coupon_code' => 'TECH100',
+                'items' => [
+                    'mochila-peak-design-everyday-20l-v2' => 1,
+                    'power-bank-anker-prime-27650mah-250w' => 1,
+                    'carregador-gan-ugreen-nexode-pro-100w' => 1,
+                    'ssd-externo-samsung-t9-2tb-usb32' => 1,
+                ],
+            ],
+        ];
+
+        foreach ($bundlesData as $bundleData) {
+            $itemsMap = $bundleData['items'];
+            unset($bundleData['items']);
+
+            $bundle = ProductBundle::updateOrCreate(
+                ['slug' => $bundleData['slug']],
+                array_merge($bundleData, ['is_active' => true])
+            );
+
+            foreach ($itemsMap as $prodSlug => $qty) {
+                if (isset($productsBySlug[$prodSlug])) {
+                    ProductBundleItem::updateOrCreate(
+                        [
+                            'bundle_id' => $bundle->id,
+                            'product_id' => $productsBySlug[$prodSlug]->id,
+                        ],
+                        ['quantity' => $qty]
+                    );
+                }
+            }
         }
     }
 }

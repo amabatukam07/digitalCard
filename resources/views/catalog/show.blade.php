@@ -58,17 +58,30 @@
         $balance = $userCard ? (float) $userCard->balance : 0.00;
         $productPrice = (float) $product->price;
         $hasBalance = $balance >= $productPrice;
+        $cardIsActive = $userCard ? (bool) $userCard->is_active : false;
+        $hasPinConfigured = $userCard && ! empty($userCard->security_pin);
         $remainingBalance = round($balance - $productPrice, 2);
         $maxCb = (float) config('digitalcard.max_cashback_percent', 15.0);
-        $effectiveCbPercent = min((float) $product->cashback_percent, $maxCb);
+        $bonusCb = (float) ($loyaltySummary['bonus_cashback_percent'] ?? 0.0);
+        $effectiveCbPercent = min(20.0, min((float) $product->cashback_percent, $maxCb) + $bonusCb);
         $cashbackValue = round($productPrice * ($effectiveCbPercent / 100), 2);
         $isWishlisted = in_array($product->id, $wishlistIds ?? [], true);
         $reviewsCount = (int) $product->reviews_count;
         $ratingValue = (float) $product->rating;
-        $freeShippingMin = (float) config('digitalcard.free_shipping_min_total', 299.00);
+        $freeShippingMin = (float) ($loyaltySummary['free_shipping_min'] ?? config('digitalcard.free_shipping_min_total', 299.00));
     @endphp
 
-    <div x-data="{ qty: 1, expressCheckoutOpen: false }" class="max-w-[1440px] mx-auto py-6 pb-24 lg:pb-12 px-4 sm:px-6 lg:px-8 space-y-10">
+    <div x-data="{
+            qty: 1,
+            expressCheckoutOpen: false,
+            unitPrice: {{ $productPrice }},
+            userBalance: {{ $balance }},
+            cardActive: {{ $cardIsActive ? 'true' : 'false' }},
+            hasPin: {{ $hasPinConfigured ? 'true' : 'false' }},
+            get expressTotal() { return this.qty * this.unitPrice; },
+            get expressCanBuy() { return this.cardActive && this.hasPin && this.userBalance >= this.expressTotal; }
+         }"
+         class="app-shell py-6 pb-24 lg:pb-12 space-y-10">
         <nav aria-label="Breadcrumb" class="flex items-center flex-wrap gap-1.5 text-xs text-slate-500">
             <a href="{{ route('catalog.index') }}" class="hover:text-ink">Início</a>
             @if($product->category?->parent)
@@ -233,6 +246,19 @@
                         @endauth
                     </div>
 
+                    @php
+                        $inCompare = in_array($product->id, $compareIds ?? session('compare_product_ids', []), true);
+                    @endphp
+                    <form action="{{ route('compare.toggle', $product) }}" method="POST">
+                        @csrf
+                        <button type="submit"
+                                aria-pressed="{{ $inCompare ? 'true' : 'false' }}"
+                                class="w-full py-2 px-3 rounded-md border text-xs font-medium transition flex items-center justify-center gap-1.5 {{ $inCompare ? 'bg-ink text-paper border-ink' : 'border-line bg-paper text-ink hover:border-ink' }}">
+                            <x-icon name="scale" class="size-3.5" />
+                            <span>{{ $inCompare ? 'No comparador (remover)' : 'Comparar lado a lado' }}</span>
+                        </button>
+                    </form>
+
                     @auth
                         <div x-show="expressCheckoutOpen" x-cloak x-transition class="pt-3 border-t border-line space-y-3">
                             <form action="{{ route('orders.checkout') }}" method="POST" class="space-y-3">
@@ -242,8 +268,15 @@
                                 <input type="hidden" name="items[0][quantity]" :value="qty">
 
                                 <div>
+                                    <label for="express_shipping_cep" class="block text-xs font-medium text-slate-700 mb-1">CEP de entrega (opcional)</label>
+                                    <input id="express_shipping_cep" type="text" name="shipping_cep" value="{{ old('shipping_cep', $savedCep ?? '') }}"
+                                           placeholder="00000-000"
+                                           class="w-full rounded-md border-line bg-paper text-xs font-mono tabular-nums py-2">
+                                </div>
+
+                                <div>
                                     <label for="express_shipping_address" class="block text-xs font-medium text-slate-700 mb-1">Endereço para entrega</label>
-                                    <input id="express_shipping_address" type="text" name="shipping_address" value="{{ $savedAddress ?? '' }}" required
+                                    <input id="express_shipping_address" type="text" name="shipping_address" value="{{ old('shipping_address', $savedAddress ?? '') }}" required
                                            placeholder="Rua, número, bairro, cidade - UF, CEP"
                                            class="w-full rounded-md border-line bg-paper text-xs py-2">
                                 </div>
@@ -254,16 +287,99 @@
                                            class="w-full rounded-md border-line bg-paper text-xs py-2 font-mono tabular-nums">
                                 </div>
 
+                                <div x-show="!cardActive" x-cloak class="rounded-md border border-danger-200 bg-danger-50 p-2.5 text-xs text-danger-700">
+                                    Seu cartão virtual está bloqueado. <a href="{{ route('card.show') }}" class="underline font-semibold">Desbloqueie no cartão</a>.
+                                </div>
+                                <div x-show="cardActive && !hasPin" x-cloak class="rounded-md border border-accent-200 bg-accent-50 p-2.5 text-xs text-accent-900">
+                                    Cadastre um PIN de 4 dígitos antes de comprar. <a href="{{ route('card.show') }}" class="underline font-semibold">Configurar PIN</a>.
+                                </div>
+                                <div x-show="cardActive && hasPin && userBalance < expressTotal" x-cloak class="rounded-md border border-danger-200 bg-danger-50 p-2.5 text-xs text-danger-700">
+                                    Saldo insuficiente para a quantidade selecionada. <a href="{{ route('card.show') }}" class="underline font-semibold">Recarregar PIX</a>.
+                                </div>
+
                                 <button type="submit"
-                                        {{ ! $hasBalance ? 'disabled' : '' }}
-                                        class="w-full bg-ink hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-500 text-paper font-medium text-xs py-2.5 px-4 rounded-md transition tabular-nums">
+                                        :disabled="!expressCanBuy"
+                                        class="w-full bg-ink hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-500 disabled:cursor-not-allowed text-paper font-medium text-xs py-2.5 px-4 rounded-md transition tabular-nums">
                                     Confirmar compra
                                 </button>
-                                <p class="text-xs text-slate-500">Compra simulada. O pedido entra como “Solicitado”.</p>
+                                <p class="text-xs text-slate-500">Pagamento instantâneo com saldo DigitalCard protegido por PIN.</p>
                             </form>
                         </div>
                     @endauth
                 </div>
+
+                <div class="bg-surface rounded-lg border border-line p-5 space-y-3">
+                    <div class="flex items-start justify-between gap-2">
+                        <div class="flex items-center gap-2">
+                            <span class="h-8 w-8 rounded-md bg-paper border border-line flex items-center justify-center shrink-0">
+                                <x-icon name="bell-ring" class="size-4 text-accent-600" />
+                            </span>
+                            <div>
+                                <h2 class="text-sm font-semibold text-ink">Alerta de queda de preço</h2>
+                                <p class="text-xs text-slate-600">Receba notificação automática quando o preço atingir sua meta.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    @auth
+                        @if(isset($userPriceAlert) && $userPriceAlert)
+                            <div class="rounded-md border border-money-200 bg-money-50 p-3 flex flex-wrap items-center justify-between gap-2 text-xs">
+                                <span class="font-medium text-money-800 tabular-nums">
+                                    Alerta ativo: avisar em R$ {{ number_format((float) $userPriceAlert->target_price, 2, ',', '.') }}
+                                </span>
+                                <form action="{{ route('price-alerts.destroy', $userPriceAlert) }}" method="POST">
+                                    @csrf
+                                    @method('DELETE')
+                                    <button type="submit" class="text-xs font-semibold text-danger-700 hover:underline">
+                                        Remover alerta
+                                    </button>
+                                </form>
+                            </div>
+                        @endif
+
+                        @php
+                            $suggestedTarget = number_format(max(1.0, round($productPrice * 0.9, 2)), 2, '.', '');
+                        @endphp
+                        <form action="{{ route('price-alerts.store', $product) }}" method="POST" class="flex flex-col sm:flex-row sm:items-end gap-2.5 text-xs">
+                            @csrf
+                            <div class="flex-1">
+                                <label for="target_price_input" class="block font-medium text-slate-700 mb-1">
+                                    Preço-alvo desejado (R$)
+                                </label>
+                                <input id="target_price_input" type="number" name="target_price" step="0.01" min="1.00" max="999999.99" inputmode="decimal" required
+                                       value="{{ old('target_price', $userPriceAlert?->target_price ?? $suggestedTarget) }}"
+                                       class="w-full rounded-md border-line bg-paper text-xs font-mono tabular-nums py-2 px-3 focus:border-ink focus:ring-ink">
+                            </div>
+                            <button type="submit"
+                                    class="rounded-md bg-ink hover:bg-slate-800 text-paper font-semibold px-4 py-2 transition whitespace-nowrap">
+                                {{ isset($userPriceAlert) && $userPriceAlert ? 'Atualizar alerta' : 'Criar alerta de preço' }}
+                            </button>
+                        </form>
+                    @else
+                        <div class="rounded-md border border-line bg-paper p-3 flex items-center justify-between gap-3 text-xs">
+                            <span class="text-slate-600">Entre na sua conta para ativar alertas de preço.</span>
+                            <a href="{{ route('login') }}" class="font-semibold text-ink hover:underline shrink-0">Entrar →</a>
+                        </div>
+                    @endauth
+                </div>
+
+                @auth
+                    <div class="bg-surface rounded-lg border border-line p-4 flex items-center justify-between gap-3 text-xs">
+                        <div class="flex items-center gap-2.5 min-w-0">
+                            <span class="h-8 w-8 rounded-md bg-paper border border-line flex items-center justify-center shrink-0">
+                                <x-icon name="piggy-bank" class="size-4 text-money-600" />
+                            </span>
+                            <div class="min-w-0">
+                                <p class="font-semibold text-ink truncate">Planejando esta compra?</p>
+                                <p class="text-slate-600">Crie uma meta vinculada no Cofrinho DigitalCard.</p>
+                            </div>
+                        </div>
+                        <a href="{{ route('card.show', ['goal_product' => $product->id]) }}"
+                           class="rounded-md border border-line bg-paper hover:border-ink px-3 py-2 font-semibold text-ink transition shrink-0">
+                            Guardar saldo →
+                        </a>
+                    </div>
+                @endauth
             </div>
         </div>
 
@@ -281,7 +397,7 @@
                     @endif
                 </div>
 
-                <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 xl:gap-5">
                     @foreach($relatedProducts as $rel)
                         <x-product-card :product="$rel" :wishlistIds="$wishlistIds" />
                     @endforeach
@@ -402,6 +518,123 @@
                 </div>
             </div>
         </section>
+
+        <section id="perguntas" class="pt-6 border-t border-line space-y-6">
+            <div class="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
+                <div>
+                    <x-eyebrow>Tira-dúvidas</x-eyebrow>
+                    <h2 class="font-serif text-2xl sm:text-3xl text-ink mt-1 flex items-center gap-2">
+                        <x-icon name="message-square" class="size-6 text-accent-600" />
+                        <span>Perguntas e respostas</span>
+                    </h2>
+                </div>
+                <span class="text-xs text-slate-500 tabular-nums">
+                    {{ isset($questions) ? $questions->count() : 0 }} {{ (isset($questions) ? $questions->count() : 0) === 1 ? 'pergunta publicada' : 'perguntas publicadas' }}
+                </span>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+                <div class="lg:col-span-4 bg-surface rounded-lg p-5 border border-line space-y-3 text-xs">
+                    <h3 class="text-sm font-semibold text-ink">Tem alguma dúvida técnica?</h3>
+                    <p class="text-slate-600 leading-relaxed">Envie sua pergunta sobre compatibilidade, dimensões ou garantia. Você receberá uma notificação quando respondermos.</p>
+
+                    @auth
+                        <form action="{{ route('questions.store', $product->slug) }}" method="POST" class="space-y-3 pt-1">
+                            @csrf
+                            <div>
+                                <label for="product_question_input" class="block font-medium text-slate-700 mb-1">Sua pergunta</label>
+                                <textarea id="product_question_input" name="question" rows="3" minlength="8" maxlength="500" required
+                                          placeholder="Ex.: Este modelo é compatível com macOS e Linux sem drivers extras?"
+                                          class="w-full rounded-md border-line bg-paper text-xs p-2.5 focus:border-ink focus:ring-ink">{{ old('question') }}</textarea>
+                            </div>
+                            <button type="submit"
+                                    class="w-full rounded-md bg-ink hover:bg-slate-800 px-4 py-2.5 font-semibold text-paper transition">
+                                Enviar pergunta
+                            </button>
+                        </form>
+                    @else
+                        <div class="rounded-md border border-line bg-paper p-3 flex items-center justify-between gap-2">
+                            <span class="text-slate-600">Entre para perguntar sobre este produto.</span>
+                            <a href="{{ route('login') }}" class="font-semibold text-ink hover:underline shrink-0">Entrar →</a>
+                        </div>
+                    @endauth
+                </div>
+
+                <div class="lg:col-span-8 space-y-3">
+                    @forelse($questions ?? [] as $qa)
+                        <details name="product-qa" {{ $loop->first ? 'open' : '' }} class="group rounded-lg border border-line bg-surface overflow-hidden">
+                            <summary class="cursor-pointer px-5 py-4 flex items-start justify-between gap-4 list-none hover:bg-paper/60 transition">
+                                <div class="space-y-1 min-w-0">
+                                    <p class="text-xs sm:text-sm font-semibold text-ink leading-snug">{{ $qa->question }}</p>
+                                    <div class="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                                        <span>Por {{ $qa->user->name ?? 'Cliente' }}</span>
+                                        <span>·</span>
+                                        <span class="tabular-nums">{{ $qa->created_at?->format('d/m/Y') }}</span>
+                                        <span>·</span>
+                                        <span class="font-medium {{ $qa->answer ? 'text-money-700' : 'text-accent-700' }}">
+                                            {{ $qa->answer ? 'Respondida' : 'Aguardando resposta' }}
+                                        </span>
+                                    </div>
+                                </div>
+                                <x-icon name="chevron-down" class="size-4 text-slate-500 shrink-0 mt-1 group-open:rotate-180 transition-transform" />
+                            </summary>
+
+                            <div class="px-5 pb-4 pt-2 border-t border-line bg-paper/50 space-y-3 text-xs">
+                                @if($qa->answer)
+                                    <div class="space-y-1">
+                                        <span class="inline-flex items-center gap-1 font-semibold text-money-700">
+                                            <x-icon name="check" class="size-3.5" />
+                                            <span>Resposta DigitalCard ({{ $qa->answered_at?->format('d/m/Y') }})</span>
+                                        </span>
+                                        <p class="text-slate-700 leading-relaxed">{{ $qa->answer }}</p>
+                                    </div>
+                                @else
+                                    <p class="text-slate-500 italic">Ainda sem resposta publicada pela equipe técnica.</p>
+                                @endif
+
+                                @can('admin')
+                                    <form action="{{ route('admin.questions.answer', $qa) }}" method="POST" class="flex flex-col sm:flex-row gap-2 pt-2 border-t border-line">
+                                        @csrf
+                                        @method('PATCH')
+                                        <label for="qa_answer_{{ $qa->id }}" class="sr-only">Responder pergunta #{{ $qa->id }}</label>
+                                        <input id="qa_answer_{{ $qa->id }}" type="text" name="answer" value="{{ $qa->answer }}" minlength="5" maxlength="2000" required
+                                               placeholder="Escrever resposta oficial..."
+                                               class="flex-1 rounded-md border-line bg-surface text-xs py-2 px-3">
+                                        <button type="submit" class="rounded-md bg-money-600 hover:bg-money-700 px-3.5 py-2 font-semibold text-paper transition shrink-0">
+                                            {{ $qa->answer ? 'Atualizar resposta' : 'Publicar resposta' }}
+                                        </button>
+                                    </form>
+                                @endcan
+                            </div>
+                        </details>
+                    @empty
+                        <div class="p-8 rounded-lg bg-surface border border-line text-center space-y-1">
+                            <p class="text-sm font-medium text-ink">Nenhuma pergunta publicada ainda.</p>
+                            <p class="text-xs text-slate-500">Seja o primeiro a enviar uma dúvida técnica sobre este item.</p>
+                        </div>
+                    @endforelse
+                </div>
+            </div>
+        </section>
+
+        @if(isset($recentlyViewedProducts) && $recentlyViewedProducts->isNotEmpty())
+            <section class="space-y-4 pt-6 border-t border-line">
+                <div class="flex items-end justify-between gap-4">
+                    <div>
+                        <x-eyebrow>Histórico recente</x-eyebrow>
+                        <h2 class="font-serif text-2xl text-ink mt-1 flex items-center gap-2">
+                            <x-icon name="history" class="size-5 text-accent-600" />
+                            <span>Vistos recentemente</span>
+                        </h2>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 xl:gap-5">
+                    @foreach($recentlyViewedProducts as $recentItem)
+                        <x-product-card :product="$recentItem" :wishlistIds="$wishlistIds" />
+                    @endforeach
+                </div>
+            </section>
+        @endif
     </div>
 
     <div class="fixed inset-x-0 bottom-0 z-30 lg:hidden bg-surface border-t border-line px-4 py-3 flex items-center justify-between gap-3">

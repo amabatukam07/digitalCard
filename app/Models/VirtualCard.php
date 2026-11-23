@@ -28,6 +28,7 @@ class VirtualCard extends Model
         'security_pin',
         'balance',
         'cashback_earned',
+        'daily_limit',
         'is_active',
     ];
 
@@ -45,6 +46,7 @@ class VirtualCard extends Model
             'cvv' => 'encrypted',
             'balance' => 'decimal:2',
             'cashback_earned' => 'decimal:2',
+            'daily_limit' => 'decimal:2',
             'is_active' => 'boolean',
         ];
     }

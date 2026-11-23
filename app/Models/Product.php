@@ -47,6 +47,11 @@ class Product extends Model
         return $this->hasMany(ProductReview::class);
     }
 
+    public function questions(): HasMany
+    {
+        return $this->hasMany(ProductQuestion::class);
+    }
+
     /**
      * Accessor inteligente com fallback local por slug:
      * 1) image_path customizado no storage público

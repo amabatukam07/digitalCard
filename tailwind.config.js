@@ -11,7 +11,7 @@ export default {
         borderRadius: { none: '0', sm: '4px', DEFAULT: '6px', md: '6px', lg: '8px', xl: '10px', '2xl': '10px', '3xl': '12px', full: '9999px' },
         extend: {
             colors: {
-                paper: '#F4F1EA', surface: '#FBF9F4', ink: '#14110F', line: '#DDD6C8',
+                paper: '#F4F1EA', 'paper-dim': '#EAE4D8', surface: '#FBF9F4', ink: '#14110F', line: '#DDD6C8',
                 slate: { 50: '#FBF9F4', 100: '#F4F1EA', 200: '#DDD6C8', 300: '#C9C1B1', 400: '#9A9285', 500: '#6B655C', 600: '#55504A', 700: '#3D3935', 800: '#26231F', 900: '#14110F', 950: '#0C0A09' },
                 accent: { DEFAULT: '#D9480F', 50: '#FFF3EB', 100: '#FFE4D2', 200: '#FFC7A3', 300: '#F59A63', 400: '#E8671F', 500: '#D9480F', 600: '#B93A08', 700: '#922E07', 800: '#6E2306', 900: '#4A1804' },
                 money: { DEFAULT: '#1F7A4D', 50: '#EDF7F1', 100: '#D5EDDF', 200: '#A9D8BF', 300: '#78BF9A', 400: '#44A276', 500: '#2A8A5D', 600: '#1F7A4D', 700: '#19623E', 800: '#154F33', 900: '#103C27' },

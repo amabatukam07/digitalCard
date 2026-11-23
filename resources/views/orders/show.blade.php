@@ -1,5 +1,5 @@
-<x-app-layout :metaTitle="'Pedido #PED-' . str_pad((string) $order->id, 6, '0', STR_PAD_LEFT)" :metaDescription="'Detalhes e rastreamento do pedido demonstrativo #PED-' . str_pad((string) $order->id, 6, '0', STR_PAD_LEFT)">
-    <div class="max-w-4xl mx-auto py-10 px-4 sm:px-6 lg:px-8 space-y-8"
+<x-app-layout :metaTitle="'Pedido #PED-' . str_pad((string) $order->id, 6, '0', STR_PAD_LEFT)" :metaDescription="'Detalhes e rastreamento do pedido #PED-' . str_pad((string) $order->id, 6, '0', STR_PAD_LEFT)">
+    <div class="w-full max-w-[1440px] mx-auto py-8 px-4 sm:px-6 lg:px-8 xl:px-10 space-y-8"
          x-data="{ copiedTracking: false }">
         <div class="flex items-center justify-between">
             <a href="{{ route('orders.index') }}" class="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 hover:text-ink transition">
@@ -7,11 +7,24 @@
                 <span>Voltar para Meus Pedidos</span>
             </a>
 
-            <button onclick="window.print()" type="button"
-                    class="inline-flex items-center gap-1.5 bg-surface hover:bg-paper-dim border border-line text-slate-700 text-xs font-medium px-3.5 py-2 rounded-lg transition">
-                <x-icon name="printer" class="size-4 text-slate-500" />
-                <span>Imprimir comprovante demonstrativo</span>
-            </button>
+            <div class="flex flex-wrap items-center gap-2">
+                @if(auth()->id() === $order->user_id)
+                    <form action="{{ route('orders.reorder', $order) }}" method="POST">
+                        @csrf
+                        <button type="submit"
+                                class="inline-flex items-center gap-1.5 bg-ink hover:bg-slate-800 text-paper text-xs font-semibold px-3.5 py-2 rounded-lg transition">
+                            <x-icon name="repeat" class="size-3.5" />
+                            <span>Repetir pedido</span>
+                        </button>
+                    </form>
+                @endif
+
+                <button onclick="window.print()" type="button"
+                        class="inline-flex items-center gap-1.5 bg-surface hover:bg-paper-dim border border-line text-slate-700 text-xs font-medium px-3.5 py-2 rounded-lg transition">
+                    <x-icon name="printer" class="size-4 text-slate-500" />
+                    <span>Imprimir comprovante</span>
+                </button>
+            </div>
         </div>
 
         <div class="bg-surface rounded-xl border border-line overflow-hidden p-6 sm:p-8 space-y-8">
@@ -105,12 +118,12 @@
                 <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div class="rounded-lg border border-line bg-paper p-3.5 text-xs flex items-center justify-between gap-2">
                         <div>
-                            <span class="block text-xs text-slate-500">Código de rastreio simulado</span>
+                            <span class="block text-xs text-slate-500">Código de rastreio</span>
                             <span class="font-mono tabular-nums font-semibold text-ink">{{ $order->tracking_code ?: 'Ainda não informado' }}</span>
                         </div>
                         @if($order->tracking_code)
                             <button type="button"
-                                    @click="navigator.clipboard && navigator.clipboard.writeText('{{ $order->tracking_code }}'); copiedTracking = true; setTimeout(() => copiedTracking = false, 2000)"
+                                    @click="navigator.clipboard && navigator.clipboard.writeText(@js($order->tracking_code)); copiedTracking = true; setTimeout(() => copiedTracking = false, 2000)"
                                     class="inline-flex items-center gap-1 rounded border border-line bg-surface px-2.5 py-1 text-xs font-medium text-ink hover:bg-paper-dim">
                                 <x-icon name="copy" class="size-3.5" />
                                 <span x-text="copiedTracking ? 'Copiado' : 'Copiar'">Copiar</span>
@@ -155,10 +168,10 @@
                                     <h4 class="text-xs font-semibold text-ink leading-snug">
                                         @if($item->product)
                                             <a href="{{ route('catalog.product', $item->product->slug) }}" class="hover:text-accent-600">
-                                                {{ $item->product->name }}
+                                                {{ $item->display_name }}
                                             </a>
                                         @else
-                                            Produto do Sistema
+                                            {{ $item->display_name }}
                                         @endif
                                     </h4>
                                     <p class="text-xs text-slate-600 mt-0.5">
@@ -197,7 +210,7 @@
                     </div>
                 @endif
                 <div class="flex justify-between text-slate-600">
-                    <span>Frete simulado</span>
+                    <span>Frete</span>
                     @if((float) $order->shipping_cost > 0)
                         <span class="font-mono tabular-nums font-medium">R$ {{ number_format((float) $order->shipping_cost, 2, ',', '.') }}</span>
                     @else

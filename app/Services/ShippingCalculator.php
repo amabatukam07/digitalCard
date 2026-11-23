@@ -9,16 +9,17 @@ class ShippingCalculator
 {
     /**
      * Calcula o frete simulado com base no CEP e no subtotal em centavos (F2).
-     * Compras com subtotal líquido >= config('digitalcard.free_shipping_min_total') têm frete grátis.
+     * Compras com subtotal líquido >= limite mínimo configurado (ou do nível de fidelidade) têm frete grátis.
      *
-     * @return array{cost_cents: int, cost: float, is_free: bool, estimated_days: int, region: string, uf: string}
+     * @return array{cost_cents: int, cost: float, is_free: bool, estimated_days: int, region: string, uf: string, free_shipping_min: float}
      */
-    public function calculate(string $cep, int $merchandiseTotalCents): array
+    public function calculate(string $cep, int $merchandiseTotalCents, ?int $freeShippingMinCents = null): array
     {
         $cleanCep = preg_replace('/\D/', '', $cep) ?: '57000000';
         $firstDigit = (int) substr(str_pad($cleanCep, 8, '0'), 0, 1);
 
-        $freeShippingMinCents = CartPricing::toCents((float) config('digitalcard.free_shipping_min_total', 299.00));
+        $defaultMinCents = CartPricing::toCents((float) config('digitalcard.free_shipping_min_total', 299.00));
+        $freeShippingMinCents = $freeShippingMinCents !== null ? max(0, $freeShippingMinCents) : $defaultMinCents;
 
         [$region, $uf, $baseCostCents, $days] = match ($firstDigit) {
             0, 1 => ['Sudeste (SP)', 'SP', 1990, 3],
@@ -42,6 +43,7 @@ class ShippingCalculator
             'estimated_days' => $days,
             'region' => $region,
             'uf' => $uf,
+            'free_shipping_min' => CartPricing::toDecimal($freeShippingMinCents),
         ];
     }
 
@@ -67,35 +69,43 @@ class ShippingCalculator
             ];
         }
 
-        return Cache::remember("viacep:{$clean}", 86400, function () use ($clean, $formatted) {
-            if (! app()->environment('testing')) {
-                try {
-                    $response = Http::timeout(2)->acceptJson()->get("https://viacep.com.br/ws/{$clean}/json/");
-                    if ($response->successful() && ! $response->json('erro')) {
-                        $data = $response->json();
+        $cacheKey = "viacep:{$clean}";
+        $cached = Cache::get($cacheKey);
+        if (is_array($cached) && isset($cached['cep'], $cached['city'], $cached['state'])) {
+            return $cached;
+        }
 
-                        return [
-                            'cep' => $data['cep'] ?? $formatted,
-                            'street' => $data['logradouro'] ?: 'Logradouro geral do CEP',
-                            'neighborhood' => $data['bairro'] ?: 'Centro',
-                            'city' => $data['localidade'] ?: 'Maceió',
-                            'state' => $data['uf'] ?: 'AL',
-                        ];
-                    }
-                } catch (\Throwable) {
-                    // Fallback offline para ambientes acadêmicos sem saída de rede
+        if (! app()->environment('testing')) {
+            try {
+                $response = Http::timeout(2)->acceptJson()->get("https://viacep.com.br/ws/{$clean}/json/");
+                if ($response->successful() && ! $response->json('erro')) {
+                    $data = $response->json();
+
+                    $resolved = [
+                        'cep' => (string) ($data['cep'] ?? $formatted),
+                        'street' => (string) ($data['logradouro'] ?: 'Logradouro geral do CEP'),
+                        'neighborhood' => (string) ($data['bairro'] ?: 'Centro'),
+                        'city' => (string) ($data['localidade'] ?: 'Maceió'),
+                        'state' => (string) ($data['uf'] ?: 'AL'),
+                    ];
+
+                    Cache::put($cacheKey, $resolved, 86400);
+
+                    return $resolved;
                 }
+            } catch (\Throwable) {
+                // Fallback offline sem poluir o cache de 24h
             }
+        }
 
-            $quote = $this->calculate($clean, 0);
+        $quote = $this->calculate($clean, 0);
 
-            return [
-                'cep' => $formatted,
-                'street' => 'Avenida Principal (Consulta Simulada)',
-                'neighborhood' => 'Centro',
-                'city' => $quote['uf'] === 'AL' ? 'Rio Largo' : 'Capital ('.$quote['uf'].')',
-                'state' => $quote['uf'],
-            ];
-        });
+        return [
+            'cep' => $formatted,
+            'street' => 'Avenida Principal (Consulta Simulada)',
+            'neighborhood' => 'Centro',
+            'city' => $quote['uf'] === 'AL' ? 'Rio Largo' : 'Capital ('.$quote['uf'].')',
+            'state' => $quote['uf'],
+        ];
     }
 }

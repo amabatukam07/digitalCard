@@ -1,6 +1,6 @@
 @props([
     'metaTitle' => null,
-    'metaDescription' => 'DigitalCard — Projeto universitário de e-commerce integrado com carteira e cartão virtual fictício para demonstração acadêmica.',
+    'metaDescription' => 'DigitalCard — Loja digital com cartão virtual integrado, recarga via PIX e cashback automático na entrega.',
     'metaImage' => null,
     'noindex' => false,
 ])
@@ -8,7 +8,7 @@
     $shouldNoIndex = $noindex || request()->routeIs('cart.*', 'card.*', 'orders.*', 'profile.*', 'admin.*', 'login', 'register', 'password.*', 'verification.*');
     $resolvedTitle = $metaTitle
         ? $metaTitle.' — '.config('app.name', 'DigitalCard')
-        : config('app.name', 'DigitalCard').' — E-commerce Universitário com Cartão Virtual';
+        : config('app.name', 'DigitalCard').' — Comércio Eletrônico com Cartão Virtual e Cashback';
     $resolvedImage = $metaImage ?: asset('images/hero/hero_smartphones.webp');
 @endphp
 <!DOCTYPE html>
@@ -82,8 +82,6 @@
             Pular para o conteúdo principal
         </a>
 
-        <x-academic-banner />
-
         @if (session('success') || session('error') || session('warning') || $errors->any())
             <div x-data="{ visible: true }"
                  x-init="setTimeout(() => visible = false, 6000)"
@@ -138,8 +136,8 @@
         @include('layouts.navigation')
 
         @isset($header)
-            <header class="bg-white border-b border-slate-200">
-                <div class="max-w-[1440px] mx-auto py-5 px-4 sm:px-6 lg:px-8">
+            <header class="bg-surface border-b border-line">
+                <div class="app-shell py-5">
                     {{ $header }}
                 </div>
             </header>
@@ -149,50 +147,89 @@
             {{ $slot }}
         </main>
 
-        <footer class="bg-ink text-slate-300 mt-12 border-t border-slate-800">
+        @if(($compareCount ?? 0) > 0 && ! request()->routeIs('compare.index'))
+            <div class="sticky bottom-4 z-30 pointer-events-none px-4 mt-4">
+                <div class="app-shell">
+                    <div class="pointer-events-auto mx-auto max-w-xl rounded-xl border border-slate-700 bg-ink text-paper px-4 py-3 shadow-float flex flex-wrap items-center justify-between gap-3">
+                        <div class="flex items-center gap-2.5 text-xs">
+                            <span class="h-8 w-8 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center shrink-0">
+                                <x-icon name="scale" class="size-4 text-accent-400" />
+                            </span>
+                            <div>
+                                <p class="font-semibold text-paper tabular-nums">
+                                    Comparador: {{ $compareCount }}/4 {{ $compareCount === 1 ? 'produto' : 'produtos' }}
+                                </p>
+                                <p class="text-slate-300 text-[11px]">Compare preços, cashback e avaliações lado a lado.</p>
+                            </div>
+                        </div>
+
+                        <div class="flex items-center gap-2">
+                            <form action="{{ route('compare.clear') }}" method="POST">
+                                @csrf
+                                @method('DELETE')
+                                <button type="submit" class="px-3 py-1.5 rounded-md border border-slate-700 text-xs font-medium text-slate-300 hover:text-paper hover:border-slate-500 transition">
+                                    Limpar
+                                </button>
+                            </form>
+                            <a href="{{ route('compare.index') }}"
+                               class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md bg-paper text-ink hover:bg-slate-200 text-xs font-semibold transition">
+                                <span>Comparar agora</span>
+                                <x-icon name="arrow-right" class="size-3.5" />
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        @endif
+
+        <footer class="site-footer bg-ink text-slate-300 mt-12 border-t border-slate-800">
             <button onclick="window.scrollTo({top: 0, behavior: 'smooth'})" type="button"
                     class="w-full bg-ink hover:bg-slate-900 text-slate-200 text-xs font-semibold py-3.5 text-center transition border-b border-slate-800/80 min-h-[44px]">
                 Voltar ao início da página ↑
             </button>
 
-            <div class="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-12">
+            <div class="app-shell py-12">
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-8 pb-10 border-b border-slate-800">
                     <div class="lg:col-span-2 space-y-4 pr-4">
                         <x-application-logo :dark="true" />
                         <p class="text-xs text-slate-300 leading-relaxed max-w-sm">
-                            Projeto universitário — ambiente de demonstração. Nenhum pagamento, cartão ou entrega é real. Sistema acadêmico desenvolvido em Laravel para estudo de arquitetura web, segurança e UX.
+                            Plataforma de compras online com cartão virtual integrado, recarga instantânea via PIX, controle de gastos por PIN e cashback automático na confirmação de entrega.
                         </p>
                     </div>
 
                     <div>
                         <h4 class="text-xs font-bold text-white mb-3.5">Departamentos</h4>
                         <ul class="space-y-2 text-xs text-slate-300">
-                            <li><a href="{{ route('catalog.category', 'eletronicos') }}" class="hover:text-accent-400 transition">Eletrônicos & Smartphones</a></li>
-                            <li><a href="{{ route('catalog.category', 'informatica') }}" class="hover:text-accent-400 transition">Informática & Hardware</a></li>
-                            <li><a href="{{ route('catalog.category', 'games') }}" class="hover:text-accent-400 transition">Consoles & Universo Gamer</a></li>
-                            <li><a href="{{ route('catalog.category', 'casa-cozinha') }}" class="hover:text-accent-400 transition">Casa & Cozinha</a></li>
-                            <li><a href="{{ route('catalog.category', 'cameras-drones') }}" class="hover:text-accent-400 transition">Câmeras & Drones</a></li>
+                            @forelse($navCategories ?? [] as $footerCat)
+                                <li>
+                                    <a href="{{ route('catalog.category', $footerCat['slug']) }}" class="hover:text-accent-400 transition">
+                                        {{ $footerCat['name'] }}
+                                    </a>
+                                </li>
+                            @empty
+                                <li><a href="{{ route('catalog.index') }}" class="hover:text-accent-400 transition">Catálogo completo</a></li>
+                            @endforelse
                         </ul>
                     </div>
 
                     <div>
-                        <h4 class="text-xs font-bold text-white mb-3.5">Cartão & Conta</h4>
+                        <h4 class="text-xs font-bold text-white mb-3.5">Cartão &amp; Conta</h4>
                         <ul class="space-y-2 text-xs text-slate-300">
                             @auth
-                                <li><a href="{{ route('card.show') }}" class="hover:text-accent-400 transition">Meu Cartão Virtual Fictício</a></li>
+                                <li><a href="{{ route('card.show') }}" class="hover:text-accent-400 transition">Meu Cartão Virtual</a></li>
                                 <li><a href="{{ route('orders.index') }}" class="hover:text-accent-400 transition">Meus Pedidos</a></li>
                                 <li><a href="{{ route('wishlist.index') }}" class="hover:text-accent-400 transition">Lista de Desejos</a></li>
                                 <li><a href="{{ route('cart.index') }}" class="hover:text-accent-400 transition">Meu Carrinho</a></li>
                             @else
                                 <li><a href="{{ route('login') }}" class="hover:text-accent-400 transition">Entrar na Minha Conta</a></li>
-                                <li><a href="{{ route('register') }}" class="hover:text-accent-400 transition">Criar Conta Demonstrativa</a></li>
+                                <li><a href="{{ route('register') }}" class="hover:text-accent-400 transition">Criar Minha Conta</a></li>
                                 <li><a href="{{ route('wishlist.index') }}" class="hover:text-accent-400 transition">Lista de Favoritos</a></li>
                             @endauth
                         </ul>
                     </div>
 
                     <div>
-                        <h4 class="text-xs font-bold text-white mb-3.5">Fluxo Acadêmico do Pedido</h4>
+                        <h4 class="text-xs font-bold text-white mb-3.5">Acompanhamento do Pedido</h4>
                         @php
                             $footerOrderSteps = [
                                 1 => \App\Enums\OrderStatus::REQUESTED,
@@ -220,7 +257,7 @@
                 </div>
 
                 <div class="pt-6 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-300 gap-4">
-                    <p>© {{ date('Y') }} DigitalCard — Projeto universitário (ambiente de demonstração). Nenhum pagamento, cartão ou entrega é real.</p>
+                    <p>© {{ date('Y') }} DigitalCard. Todos os direitos reservados.</p>
                 </div>
             </div>
         </footer>

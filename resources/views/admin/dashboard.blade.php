@@ -1,5 +1,9 @@
+@php
+    $maxCashback = (float) config('digitalcard.max_cashback_percent', 15.0);
+@endphp
+
 <x-admin-layout>
-    <div class="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8 space-y-8"
+    <div class="w-full max-w-[1720px] mx-auto py-4 sm:py-6 space-y-8"
          x-data="{
             previewModalOpen: false,
             previewUrl: '',
@@ -19,6 +23,8 @@
             editProductCashback: '',
             editProductStock: '',
             editProductImage: '',
+            editProductDescription: '',
+            editProductClearCompare: false,
             openReceipt(url, type = 'image') {
                 this.previewUrl = url;
                 this.previewType = type;
@@ -30,7 +36,7 @@
                 this.rejectAmount = amount;
                 this.rejectModalOpen = true;
             },
-            openEditProduct(action, name, categoryId, price, comparePrice, cashback, stock, image) {
+            openEditProduct(action, name, categoryId, price, comparePrice, cashback, stock, image, description) {
                 this.editProductAction = action;
                 this.editProductName = name;
                 this.editProductCategoryId = categoryId;
@@ -39,6 +45,8 @@
                 this.editProductCashback = cashback;
                 this.editProductStock = stock;
                 this.editProductImage = image;
+                this.editProductDescription = description;
+                this.editProductClearCompare = false;
                 this.editProductModalOpen = true;
             }
          }">
@@ -47,7 +55,7 @@
             <div>
                 <x-eyebrow>Backoffice • Visão geral operacional</x-eyebrow>
                 <h1 class="mt-1 font-serif text-3xl text-ink">Dashboard Administrativo</h1>
-                <p class="mt-1 text-sm text-slate-600">Acompanhe saldo em circulação, vendas, recargas pendentes e entregas.</p>
+                <p class="mt-1 text-sm text-slate-600">Acompanhe saldo em circulação, vendas, recargas pendentes, catálogo, cupons e auditoria.</p>
             </div>
 
             <div class="flex flex-wrap items-center gap-2">
@@ -60,6 +68,11 @@
                    class="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-4 py-2.5 text-xs font-medium text-ink transition hover:bg-paper-dim">
                     <x-icon name="package" class="size-4 text-slate-500" />
                     <span>Todos os pedidos</span>
+                </a>
+                <a href="{{ route('admin.reports.sales.csv') }}"
+                   class="inline-flex items-center gap-1.5 rounded-lg bg-ink px-4 py-2.5 text-xs font-semibold text-paper transition hover:bg-slate-800">
+                    <x-icon name="receipt" class="size-4" />
+                    <span>Exportar CSV</span>
                 </a>
             </div>
         </div>
@@ -105,7 +118,7 @@
 
             <div class="p-5">
                 <div class="flex items-center justify-between text-slate-500">
-                    <span class="text-xs font-medium">Total de vendas</span>
+                    <span class="text-xs font-medium">Total de vendas líquidas</span>
                     <x-icon name="receipt" class="size-4 text-money-600" />
                 </div>
                 <p class="mt-2 font-mono tabular-nums text-2xl font-semibold text-money-700 whitespace-nowrap">R$ {{ number_format($totalSales, 2, ',', '.') }}</p>
@@ -114,11 +127,180 @@
 
             <div class="p-5">
                 <div class="flex items-center justify-between text-slate-500">
-                    <span class="text-xs font-medium">Aguardando entrega</span>
+                    <span class="text-xs font-medium">Pedidos em aberto</span>
                     <x-icon name="truck" class="size-4" />
                 </div>
                 <p class="mt-2 font-mono tabular-nums text-2xl font-semibold text-ink">{{ $pendingOrdersCount }}</p>
-                <p class="mt-1 text-xs text-slate-500">Status "Produto solicitado"</p>
+                <p class="mt-1 text-xs text-slate-500">Aguardando separação/entrega</p>
+            </div>
+        </div>
+
+        @if(isset($fintechMetrics))
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div class="rounded-xl border border-line bg-surface p-4 space-y-1">
+                    <div class="flex items-center justify-between text-xs text-slate-500">
+                        <span>Cofrinhos reservados</span>
+                        <x-icon name="piggy-bank" class="size-4 text-money-600" />
+                    </div>
+                    <p class="font-mono text-lg font-bold tabular-nums text-ink">
+                        R$ {{ number_format((float) $fintechMetrics['goals_total'], 2, ',', '.') }}
+                    </p>
+                    <span class="text-[11px] text-slate-500 tabular-nums">{{ $fintechMetrics['goals_count'] }} metas ativas</span>
+                </div>
+
+                <div class="rounded-xl border border-line bg-surface p-4 space-y-1">
+                    <div class="flex items-center justify-between text-xs text-slate-500">
+                        <span>Gift Cards ativos</span>
+                        <x-icon name="gift" class="size-4 text-accent-600" />
+                    </div>
+                    <p class="font-mono text-lg font-bold tabular-nums text-ink">
+                        R$ {{ number_format((float) $fintechMetrics['active_gift_cards_total'], 2, ',', '.') }}
+                    </p>
+                    <span class="text-[11px] text-slate-500 tabular-nums">{{ $fintechMetrics['active_gift_cards_count'] }} vales a resgatar</span>
+                </div>
+
+                <div class="rounded-xl border border-line bg-surface p-4 space-y-1">
+                    <div class="flex items-center justify-between text-xs text-slate-500">
+                        <span>Volume P2P transferido</span>
+                        <x-icon name="send" class="size-4 text-ink" />
+                    </div>
+                    <p class="font-mono text-lg font-bold tabular-nums text-ink">
+                        R$ {{ number_format((float) $fintechMetrics['p2p_volume_total'], 2, ',', '.') }}
+                    </p>
+                    <span class="text-[11px] text-slate-500">Entre contas DigitalCard</span>
+                </div>
+
+                <div class="rounded-xl border border-line bg-surface p-4 space-y-1">
+                    <div class="flex items-center justify-between text-xs text-slate-500">
+                        <span>Alertas de preço</span>
+                        <x-icon name="bell-ring" class="size-4 text-accent-600" />
+                    </div>
+                    <p class="font-mono text-lg font-bold tabular-nums text-ink">{{ $fintechMetrics['active_price_alerts_count'] }}</p>
+                    <span class="text-[11px] text-slate-500">Monitores ativos de clientes</span>
+                </div>
+            </div>
+        @endif
+
+        <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            <div class="rounded-xl border border-line bg-surface p-6 space-y-5">
+                <div>
+                    <h2 id="dept-sales-heading" class="text-base font-semibold text-ink">Desempenho por departamento &amp; Top 5</h2>
+                    <p class="text-xs text-slate-500">Receita acumulada em pedidos válidos e líderes de vendas.</p>
+                </div>
+
+                @if(isset($salesByDepartment) && $salesByDepartment->isNotEmpty())
+                    <div class="space-y-2.5 text-xs">
+                        @foreach($salesByDepartment as $deptStat)
+                            <div class="space-y-1">
+                                <div class="flex items-center justify-between">
+                                    <span class="font-medium text-ink">{{ $deptStat['name'] }} ({{ $deptStat['units'] }} un.)</span>
+                                    <span class="font-mono tabular-nums font-semibold text-ink">
+                                        R$ {{ number_format($deptStat['revenue'], 2, ',', '.') }}
+                                    </span>
+                                </div>
+                                <div class="h-1.5 w-full rounded-full bg-paper-dim overflow-hidden">
+                                    <div class="h-full bg-ink rounded-full" style="width: {{ $deptStat['percent'] }}%"></div>
+                                </div>
+                            </div>
+                        @endforeach
+                    </div>
+                @else
+                    <p class="text-xs text-slate-500">Nenhuma venda contabilizada ainda para gráfico por departamento.</p>
+                @endif
+
+                @if(isset($topProducts) && $topProducts->isNotEmpty())
+                    <div class="pt-4 border-t border-line space-y-2 text-xs">
+                        <h3 class="font-semibold text-slate-700">Top 5 produtos mais vendidos</h3>
+                        <ul class="divide-y divide-line rounded-lg border border-line bg-paper overflow-hidden">
+                            @foreach($topProducts as $tp)
+                                <li class="px-3.5 py-2 flex items-center justify-between gap-3">
+                                    <span class="font-medium text-ink truncate">{{ $tp->product_name }}</span>
+                                    <span class="font-mono tabular-nums text-slate-600 shrink-0">{{ (int) $tp->total_units }} un.</span>
+                                </li>
+                            @endforeach
+                        </ul>
+                    </div>
+                @endif
+            </div>
+
+            <div class="space-y-6">
+                <div class="overflow-hidden rounded-xl border border-line bg-surface">
+                    <div class="flex items-center justify-between border-b border-line p-5">
+                        <div class="flex items-center gap-2">
+                            <x-icon name="alert-triangle" class="size-4 text-accent-600" />
+                            <div>
+                                <h2 id="low-stock-heading" class="text-sm font-semibold text-ink">Alertas de estoque crítico (&le; 5 un.)</h2>
+                                <p class="text-xs text-slate-500">Itens ativos que requerem reposição rápida.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div tabindex="0" role="region" aria-labelledby="low-stock-heading" class="table-scroll-region max-h-60">
+                        <table class="w-full border-collapse text-left text-xs">
+                            <thead>
+                                <tr class="border-b border-line bg-paper text-xs font-medium text-slate-500">
+                                    <th class="px-5 py-2.5">Produto</th>
+                                    <th class="px-5 py-2.5">Categoria</th>
+                                    <th class="px-5 py-2.5 text-right">Saldo</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-line">
+                                @forelse($lowStockProducts ?? [] as $lowProd)
+                                    <tr class="hover:bg-paper/60">
+                                        <td class="px-5 py-2.5 font-medium text-ink">{{ $lowProd->name }}</td>
+                                        <td class="px-5 py-2.5 text-slate-500">{{ $lowProd->category?->name ?? '—' }}</td>
+                                        <td class="px-5 py-2.5 text-right font-mono tabular-nums font-bold {{ (int) $lowProd->stock === 0 ? 'text-danger-700' : 'text-accent-700' }}">
+                                            {{ (int) $lowProd->stock }} un.
+                                        </td>
+                                    </tr>
+                                @empty
+                                    <tr>
+                                        <td colspan="3" class="px-5 py-6 text-center text-slate-500">
+                                            Todo o catálogo ativo está com estoque saudável (&gt; 5 unidades).
+                                        </td>
+                                    </tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="overflow-hidden rounded-xl border border-line bg-surface">
+                    <div class="flex items-center justify-between border-b border-line p-5">
+                        <div class="flex items-center gap-2">
+                            <x-icon name="message-square" class="size-4 text-ink" />
+                            <div>
+                                <h2 class="text-sm font-semibold text-ink">Perguntas pendentes de clientes (Q&amp;A)</h2>
+                                <p class="text-xs text-slate-500">Responda diretamente para notificar quem perguntou.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="divide-y divide-line max-h-72 overflow-y-auto text-xs">
+                        @forelse($pendingQuestions ?? [] as $pq)
+                            <div class="p-4 space-y-2.5">
+                                <div class="flex items-center justify-between gap-2 text-[11px] text-slate-500">
+                                    <span class="font-semibold text-ink truncate">{{ $pq->product?->name ?? 'Produto' }}</span>
+                                    <span>{{ $pq->user?->name ?? 'Cliente' }} · {{ $pq->created_at?->format('d/m H:i') }}</span>
+                                </div>
+                                <p class="text-slate-700 font-medium">“{{ $pq->question }}”</p>
+                                <form action="{{ route('admin.questions.answer', $pq) }}" method="POST" class="flex gap-2">
+                                    @csrf
+                                    @method('PATCH')
+                                    <label for="dash_ans_{{ $pq->id }}" class="sr-only">Responder pergunta #{{ $pq->id }}</label>
+                                    <input id="dash_ans_{{ $pq->id }}" type="text" name="answer" minlength="5" maxlength="2000" required
+                                           placeholder="Escreva a resposta técnica..."
+                                           class="flex-1 rounded-md border-line bg-paper py-1.5 px-2.5 text-xs">
+                                    <button type="submit" class="rounded-md bg-money-600 hover:bg-money-700 px-3 py-1.5 font-semibold text-paper transition shrink-0">
+                                        Responder
+                                    </button>
+                                </form>
+                            </div>
+                        @empty
+                            <p class="p-6 text-center text-slate-500">Nenhuma pergunta pendente na fila de Q&amp;A.</p>
+                        @endforelse
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -141,7 +323,7 @@
                             <th class="px-6 py-3.5">Solicitação</th>
                             <th class="px-6 py-3.5">Cliente</th>
                             <th class="px-6 py-3.5">Valor</th>
-                            <th class="px-6 py-3.5">Comprovante</th>
+                            <th class="px-6 py-3.5">Comprovante / Origem</th>
                             <th class="px-6 py-3.5 text-right">Decisão</th>
                         </tr>
                     </thead>
@@ -164,11 +346,17 @@
                                     R$ {{ number_format((float) $recharge->amount, 2, ',', '.') }}
                                 </td>
                                 <td class="px-6 py-4">
-                                    <button @click="openReceipt('{{ route('recharges.receipt', $recharge) }}', '{{ str_ends_with(strtolower($recharge->receipt_path), '.pdf') ? 'pdf' : 'image' }}')" type="button"
-                                            class="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink transition hover:bg-paper-dim">
-                                        <x-icon name="eye" class="size-3.5 text-slate-500" />
-                                        <span>Inspecionar</span>
-                                    </button>
+                                    @if(! empty($recharge->receipt_path))
+                                        <button @click="openReceipt(@js(route('recharges.receipt', $recharge)), @js(str_ends_with(strtolower($recharge->receipt_path), '.pdf') ? 'pdf' : 'image'))" type="button"
+                                                class="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink transition hover:bg-paper-dim">
+                                            <x-icon name="eye" class="size-3.5 text-slate-500" />
+                                            <span>Inspecionar</span>
+                                        </button>
+                                    @else
+                                        <span class="inline-flex items-center rounded-md border border-line bg-paper px-2.5 py-1 font-mono text-xs text-slate-600">
+                                            PIX {{ $recharge->txid ?? 'Dinâmico' }}
+                                        </span>
+                                    @endif
                                 </td>
                                 <td class="px-6 py-4">
                                     @if((int) ($card?->user_id) === (int) auth()->id())
@@ -190,7 +378,7 @@
                                             </form>
 
                                             <button type="button"
-                                                    @click="openReject('{{ route('admin.recharges.reject', $recharge) }}', '{{ addslashes($client->name ?? 'Cliente') }}', '{{ number_format((float) $recharge->amount, 2, ',', '.') }}')"
+                                                    @click="openReject(@js(route('admin.recharges.reject', $recharge)), @js($client->name ?? 'Cliente'), @js(number_format((float) $recharge->amount, 2, ',', '.')))"
                                                     class="rounded-lg border border-danger-200 bg-surface px-3 py-2 text-xs font-semibold text-danger-700 transition hover:bg-danger-50">
                                                 Recusar
                                             </button>
@@ -214,7 +402,7 @@
             <div class="flex flex-col justify-between gap-2 border-b border-line p-6 sm:flex-row sm:items-center">
                 <div>
                     <h2 class="text-base font-semibold text-ink">Entregas aguardando confirmação</h2>
-                    <p class="text-xs text-slate-500">Pedidos em "Produto solicitado". Confirme a entrega para liberar o cashback.</p>
+                    <p class="text-xs text-slate-500">Pedidos em aberto. Confirme a entrega para liberar o cashback.</p>
                 </div>
                 <a href="{{ route('admin.orders.index') }}" class="inline-flex items-center gap-1 text-xs font-medium text-ink hover:text-accent-600">
                     <span>Gestão de pedidos</span>
@@ -240,7 +428,7 @@
                                     <a href="{{ route('orders.show', $order) }}" class="font-mono tabular-nums font-semibold text-ink hover:text-accent-600 underline">
                                         #PED-{{ str_pad((string) $order->id, 6, '0', STR_PAD_LEFT) }}
                                     </a>
-                                    <span class="block text-xs text-slate-500">{{ $order->created_at->format('d/m/Y H:i') }}</span>
+                                    <span class="block text-xs text-slate-500">{{ $order->status }} • {{ $order->created_at->format('d/m/Y H:i') }}</span>
                                 </td>
                                 <td class="px-6 py-4">
                                     <span class="block font-medium text-ink">{{ $order->user->name ?? 'Cliente' }}</span>
@@ -256,7 +444,7 @@
                                     <form action="{{ route('admin.orders.deliver', $order) }}" method="POST" class="flex items-center justify-end gap-2">
                                         @csrf
                                         @method('PATCH')
-                                        <input type="text" name="tracking_code" maxlength="100" placeholder="Rastreio (opcional)"
+                                        <input type="text" name="tracking_code" value="{{ $order->tracking_code }}" maxlength="100" placeholder="Rastreio (opcional)"
                                                class="w-36 rounded-lg border-line px-2.5 py-2 text-xs">
                                         <button type="submit" class="whitespace-nowrap rounded-lg bg-money-600 px-3 py-2 text-xs font-semibold text-paper transition hover:bg-money-700">
                                             Entregar
@@ -274,14 +462,21 @@
             </div>
         </div>
 
-        <div class="overflow-hidden rounded-xl border border-line bg-surface">
-            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-line p-6">
+        <div id="produtos" class="overflow-hidden rounded-xl border border-line bg-surface">
+            <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-line p-6">
                 <div>
                     <h2 id="admin-products-caption" class="text-base font-semibold text-ink">Gestão de catálogo (Produtos e Categorias)</h2>
-                    <p class="text-xs text-slate-500">Cadastre novos itens, edite preços, estoque e cashback ou alterne a visibilidade de produtos.</p>
+                    <p class="text-xs text-slate-500">Cadastre novos itens, edite preços, estoque, imagens e cashback ou alterne a visibilidade.</p>
                 </div>
 
                 <div class="flex flex-wrap items-center gap-2">
+                    <form action="{{ route('admin.dashboard') }}#produtos" method="GET" class="flex items-center gap-1.5">
+                        <input type="text" name="product_q" value="{{ request('product_q') }}" placeholder="Buscar produto..."
+                               class="rounded-lg border-line px-3 py-2 text-xs w-44">
+                        <button type="submit" class="rounded-lg border border-line bg-paper px-3 py-2 text-xs font-medium text-ink hover:border-ink">
+                            Buscar
+                        </button>
+                    </form>
                     <button @click="createCategoryModalOpen = true" type="button"
                             class="inline-flex items-center gap-1 rounded-lg border border-line bg-surface px-3.5 py-2 text-xs font-medium text-ink transition hover:bg-paper-dim">
                         <x-icon name="plus" class="size-3.5" />
@@ -332,14 +527,15 @@
                                     <div class="flex items-center justify-end gap-2">
                                         <button type="button"
                                                 @click="openEditProduct(
-                                                    '{{ route('admin.products.update', $product) }}',
-                                                    '{{ addslashes($product->name) }}',
-                                                    '{{ $product->category_id }}',
-                                                    '{{ (float) $product->price }}',
-                                                    '{{ (float) ($product->compare_at_price ?? $product->original_price) }}',
-                                                    '{{ (float) $product->cashback_percent }}',
-                                                    '{{ (int) $product->stock }}',
-                                                    '{{ addslashes((string) $product->image_path) }}'
+                                                    @js(route('admin.products.update', $product)),
+                                                    @js($product->name),
+                                                    @js((string) $product->category_id),
+                                                    @js((string) (float) $product->price),
+                                                    @js($product->compare_at_price !== null ? (string) (float) $product->compare_at_price : ''),
+                                                    @js((string) (float) $product->cashback_percent),
+                                                    @js((string) (int) $product->stock),
+                                                    @js((string) ($product->image_path ?? '')),
+                                                    @js((string) ($product->description ?? ''))
                                                 )"
                                                 class="rounded-lg border border-line bg-paper px-3 py-1.5 text-xs font-medium text-ink transition hover:bg-paper-dim">
                                             Editar
@@ -358,6 +554,209 @@
                         @endforeach
                     </tbody>
                 </table>
+            </div>
+
+            @if($products->hasPages())
+                <div class="p-5 border-t border-line">
+                    {{ $products->links() }}
+                </div>
+            @endif
+        </div>
+
+        <div id="cupons" class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            <div class="lg:col-span-5 rounded-xl border border-line bg-surface p-6 space-y-4">
+                <div>
+                    <h2 class="text-base font-semibold text-ink">Criar ou atualizar cupom</h2>
+                    <p class="text-xs text-slate-500">Defina cupons percentuais ou fixos com limites de uso por usuário e global.</p>
+                </div>
+
+                <form action="{{ route('admin.coupons.store') }}" method="POST" class="space-y-3 text-xs">
+                    @csrf
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block font-medium text-slate-700 mb-1">Código</label>
+                            <input type="text" name="code" required placeholder="PROMO15" maxlength="50" class="w-full rounded-lg border-line font-mono uppercase text-xs py-2">
+                        </div>
+                        <div>
+                            <label class="block font-medium text-slate-700 mb-1">Tipo</label>
+                            <select name="type" class="w-full rounded-lg border-line text-xs py-2">
+                                <option value="percent">Percentual (%)</option>
+                                <option value="fixed">Valor fixo (R$)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block font-medium text-slate-700 mb-1">Descrição / Rótulo</label>
+                        <input type="text" name="label" required placeholder="15% OFF no DigitalCard" maxlength="150" class="w-full rounded-lg border-line text-xs py-2">
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block font-medium text-slate-700 mb-1">Valor do desconto</label>
+                            <input type="number" step="0.01" min="0.01" name="value" required placeholder="15.00" class="w-full rounded-lg border-line font-mono text-xs py-2">
+                        </div>
+                        <div>
+                            <label class="block font-medium text-slate-700 mb-1">Pedido mínimo (R$)</label>
+                            <input type="number" step="0.01" min="0" name="min_total" value="0" class="w-full rounded-lg border-line font-mono text-xs py-2">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-3 gap-2">
+                        <div>
+                            <label class="block font-medium text-slate-700 mb-1">Uso total</label>
+                            <input type="number" min="1" name="max_uses" placeholder="100" class="w-full rounded-lg border-line font-mono text-xs py-2">
+                        </div>
+                        <div>
+                            <label class="block font-medium text-slate-700 mb-1">Por usuário</label>
+                            <input type="number" min="1" name="per_user_limit" value="1" class="w-full rounded-lg border-line font-mono text-xs py-2">
+                        </div>
+                        <div>
+                            <label class="block font-medium text-slate-700 mb-1">Expira em</label>
+                            <input type="date" name="ends_at" class="w-full rounded-lg border-line text-xs py-2">
+                        </div>
+                    </div>
+
+                    <button type="submit" class="w-full rounded-lg bg-ink hover:bg-slate-800 py-2.5 text-xs font-semibold text-paper transition">
+                        Salvar cupom promocional
+                    </button>
+                </form>
+            </div>
+
+            <div class="lg:col-span-7 overflow-hidden rounded-xl border border-line bg-surface">
+                <div class="border-b border-line p-5">
+                    <h2 class="text-base font-semibold text-ink">Cupons cadastrados</h2>
+                    <p class="text-xs text-slate-500">Acompanhe utilização e ative ou desative cupons imediatamente.</p>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full border-collapse text-left text-xs">
+                        <thead>
+                            <tr class="border-b border-line bg-paper font-medium text-slate-500">
+                                <th class="px-5 py-3">Código</th>
+                                <th class="px-5 py-3">Benefício</th>
+                                <th class="px-5 py-3">Usos</th>
+                                <th class="px-5 py-3">Status</th>
+                                <th class="px-5 py-3 text-right">Ação</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-line">
+                            @forelse($coupons as $coupon)
+                                <tr class="hover:bg-paper/60">
+                                    <td class="px-5 py-3.5 font-mono font-semibold text-ink">{{ $coupon->code }}</td>
+                                    <td class="px-5 py-3.5 text-slate-700">
+                                        <span class="block font-medium text-ink">{{ $coupon->label }}</span>
+                                        <span class="text-slate-500">
+                                            {{ $coupon->type === 'percent' ? number_format((float) $coupon->value, 0).'%' : 'R$ '.number_format((float) $coupon->value, 2, ',', '.') }}
+                                            • Mín: R$ {{ number_format((float) $coupon->min_total, 2, ',', '.') }}
+                                        </span>
+                                    </td>
+                                    <td class="px-5 py-3.5 font-mono tabular-nums text-slate-600">
+                                        {{ $coupon->used_count }}{{ $coupon->max_uses ? ' / '.$coupon->max_uses : '' }}
+                                    </td>
+                                    <td class="px-5 py-3.5">
+                                        <span class="inline-flex rounded border px-2 py-0.5 text-xs font-medium {{ $coupon->is_active ? 'border-money-200 bg-money-50 text-money-700' : 'border-line bg-paper text-slate-500' }}">
+                                            {{ $coupon->is_active ? 'Ativo' : 'Inativo' }}
+                                        </span>
+                                    </td>
+                                    <td class="px-5 py-3.5 text-right">
+                                        <form action="{{ route('admin.coupons.toggle', $coupon) }}" method="POST">
+                                            @csrf
+                                            @method('PATCH')
+                                            <button type="submit" class="rounded-lg border border-line bg-surface px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-paper-dim">
+                                                {{ $coupon->is_active ? 'Desativar' : 'Ativar' }}
+                                            </button>
+                                        </form>
+                                    </td>
+                                </tr>
+                            @empty
+                                <tr>
+                                    <td colspan="5" class="px-5 py-8 text-center text-slate-500">Nenhum cupom cadastrado.</td>
+                                </tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            <div class="lg:col-span-6 overflow-hidden rounded-xl border border-line bg-surface">
+                <div class="border-b border-line p-5">
+                    <h2 class="text-base font-semibold text-ink">Clientes e Carteiras</h2>
+                    <p class="text-xs text-slate-500">Contas recentes e saldos em cartões virtuais.</p>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full border-collapse text-left text-xs">
+                        <thead>
+                            <tr class="border-b border-line bg-paper font-medium text-slate-500">
+                                <th class="px-5 py-3">Titular</th>
+                                <th class="px-5 py-3">Perfil</th>
+                                <th class="px-5 py-3 text-right">Saldo</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-line">
+                            @foreach($users as $account)
+                                <tr class="hover:bg-paper/60">
+                                    <td class="px-5 py-3">
+                                        <span class="block font-medium text-ink">{{ $account->name }}</span>
+                                        <span class="text-slate-500">{{ $account->email }}</span>
+                                    </td>
+                                    <td class="px-5 py-3 text-slate-600">
+                                        @if(((bool) auth()->user()->is_admin || auth()->user()->roleEnum() === \App\Enums\UserRole::Admin) && $account->id !== auth()->id())
+                                            <form action="{{ route('admin.users.role', $account) }}" method="POST" class="flex items-center gap-1.5">
+                                                @csrf
+                                                @method('PATCH')
+                                                <select name="role" aria-label="Papel de {{ $account->name }}" class="rounded border-line text-xs py-1 pr-7">
+                                                    @foreach(\App\Enums\UserRole::cases() as $roleCase)
+                                                        <option value="{{ $roleCase->value }}" {{ $account->roleEnum() === $roleCase ? 'selected' : '' }}>
+                                                            {{ $roleCase->label() }}
+                                                        </option>
+                                                    @endforeach
+                                                </select>
+                                                <button type="submit" class="rounded border border-line bg-paper px-2 py-1 text-xs font-medium text-ink hover:border-ink">
+                                                    Salvar
+                                                </button>
+                                            </form>
+                                        @else
+                                            {{ $account->roleEnum()->label() }}
+                                        @endif
+                                    </td>
+                                    <td class="px-5 py-3 text-right font-mono tabular-nums font-semibold text-money-700 whitespace-nowrap">
+                                        R$ {{ number_format((float) ($account->virtualCard?->balance ?? 0), 2, ',', '.') }}
+                                    </td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="lg:col-span-6 overflow-hidden rounded-xl border border-line bg-surface">
+                <div class="border-b border-line p-5">
+                    <h2 class="text-base font-semibold text-ink">Trilha de Auditoria Recente</h2>
+                    <p class="text-xs text-slate-500">Últimos eventos financeiros e operacionais registrados no sistema.</p>
+                </div>
+
+                <div class="divide-y divide-line text-xs max-h-[420px] overflow-y-auto">
+                    @forelse($auditLogs as $log)
+                        <div class="px-5 py-3 flex items-start justify-between gap-3">
+                            <div class="min-w-0">
+                                <span class="font-mono font-semibold text-ink">{{ $log->action }}</span>
+                                <p class="text-slate-600 truncate">
+                                    {{ $log->user?->name ?? 'Sistema' }} • {{ class_basename($log->auditable_type) }} #{{ $log->auditable_id }}
+                                </p>
+                            </div>
+                            <div class="text-right shrink-0 font-mono text-slate-500 tabular-nums">
+                                <span class="block">{{ $log->created_at?->format('d/m H:i') }}</span>
+                                <span>{{ $log->ip_address }}</span>
+                            </div>
+                        </div>
+                    @empty
+                        <p class="p-6 text-center text-slate-500">Nenhum evento registrado na auditoria.</p>
+                    @endforelse
+                </div>
             </div>
         </div>
 
@@ -445,7 +844,7 @@
                         </button>
                     </div>
 
-                    <form action="{{ route('admin.products.store') }}" method="POST" class="space-y-3 text-xs">
+                    <form action="{{ route('admin.products.store') }}" method="POST" enctype="multipart/form-data" class="space-y-3 text-xs">
                         @csrf
                         <div>
                             <label class="mb-1 block font-medium text-slate-700">Nome do produto</label>
@@ -477,8 +876,8 @@
 
                         <div class="grid grid-cols-2 gap-3">
                             <div>
-                                <label class="mb-1 block font-medium text-slate-700">Cashback (%)</label>
-                                <input type="number" step="0.5" min="0" max="50" name="cashback_percent" value="3.0" required
+                                <label class="mb-1 block font-medium text-slate-700">Cashback (% — máx {{ $maxCashback }}%)</label>
+                                <input type="number" step="0.5" min="0" max="{{ $maxCashback }}" name="cashback_percent" value="3.0" required
                                        class="w-full rounded-lg border-line text-xs py-2 font-mono tabular-nums">
                             </div>
                             <div>
@@ -486,6 +885,12 @@
                                 <input type="number" min="0" name="stock" value="15" required
                                        class="w-full rounded-lg border-line text-xs py-2 font-mono tabular-nums">
                             </div>
+                        </div>
+
+                        <div>
+                            <label class="mb-1 block font-medium text-slate-700">Upload de imagem (JPG, PNG ou WebP até 2MB)</label>
+                            <input type="file" name="image_file" accept=".jpg,.jpeg,.png,.webp"
+                                   class="block w-full text-xs text-slate-700 file:mr-3 file:rounded-md file:border-0 file:bg-ink file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-paper">
                         </div>
 
                         <div>
@@ -525,7 +930,7 @@
                         </button>
                     </div>
 
-                    <form :action="editProductAction" method="POST" class="space-y-3 text-xs">
+                    <form :action="editProductAction" method="POST" enctype="multipart/form-data" class="space-y-3 text-xs">
                         @csrf
                         @method('PATCH')
                         <div>
@@ -556,10 +961,15 @@
                             </div>
                         </div>
 
+                        <label class="inline-flex items-center gap-2 text-slate-600">
+                            <input type="checkbox" name="clear_compare_at_price" value="1" x-model="editProductClearCompare" class="rounded border-line">
+                            <span>Remover preço "De:" (encerrar oferta)</span>
+                        </label>
+
                         <div class="grid grid-cols-2 gap-3">
                             <div>
-                                <label class="mb-1 block font-medium text-slate-700">Cashback (%)</label>
-                                <input type="number" step="0.5" min="0" max="50" name="cashback_percent" x-model="editProductCashback" required
+                                <label class="mb-1 block font-medium text-slate-700">Cashback (% — máx {{ $maxCashback }}%)</label>
+                                <input type="number" step="0.5" min="0" max="{{ $maxCashback }}" name="cashback_percent" x-model="editProductCashback" required
                                        class="w-full rounded-lg border-line text-xs py-2 font-mono tabular-nums">
                             </div>
                             <div>
@@ -570,9 +980,20 @@
                         </div>
 
                         <div>
+                            <label class="mb-1 block font-medium text-slate-700">Nova imagem (opcional)</label>
+                            <input type="file" name="image_file" accept=".jpg,.jpeg,.png,.webp"
+                                   class="block w-full text-xs text-slate-700 file:mr-3 file:rounded-md file:border-0 file:bg-ink file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-paper">
+                        </div>
+
+                        <div>
                             <label class="mb-1 block font-medium text-slate-700">Caminho ou URL da imagem</label>
                             <input type="text" name="image_path" x-model="editProductImage"
                                    class="w-full rounded-lg border-line text-xs py-2">
+                        </div>
+
+                        <div>
+                            <label class="mb-1 block font-medium text-slate-700">Descrição</label>
+                            <textarea name="description" rows="3" x-model="editProductDescription" class="w-full rounded-lg border-line text-xs"></textarea>
                         </div>
 
                         <div class="flex gap-2 pt-2">

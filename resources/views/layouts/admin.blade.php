@@ -55,18 +55,16 @@
                     <a href="{{ route('admin.recharges.index') }}"
                        class="flex items-center justify-between px-3.5 py-2.5 rounded-md transition {{ request()->routeIs('admin.recharges.*') ? 'bg-slate-800 text-accent-400 font-semibold' : 'text-slate-300 hover:bg-slate-800 hover:text-white' }}">
                         <span>Recargas</span>
-                        @php($pRech = \App\Models\Recharge::where('status', \App\Models\Recharge::STATUS_PENDING)->count())
-                        @if($pRech > 0)
-                            <span class="px-2 py-0.5 rounded-full text-xs tabular-nums bg-danger-600 text-white font-semibold">{{ $pRech }}</span>
+                        @if(($adminPendingRechargesCount ?? 0) > 0)
+                            <span class="px-2 py-0.5 rounded-full text-xs tabular-nums bg-danger-600 text-white font-semibold">{{ $adminPendingRechargesCount }}</span>
                         @endif
                     </a>
 
                     <a href="{{ route('admin.orders.index') }}"
                        class="flex items-center justify-between px-3.5 py-2.5 rounded-md transition {{ request()->routeIs('admin.orders.*') ? 'bg-slate-800 text-accent-400 font-semibold' : 'text-slate-300 hover:bg-slate-800 hover:text-white' }}">
                         <span>Pedidos</span>
-                        @php($pOrd = \App\Models\Order::whereIn('status', [\App\Models\Order::STATUS_REQUESTED, \App\Models\Order::STATUS_SEPARATING, \App\Models\Order::STATUS_SHIPPED])->count())
-                        @if($pOrd > 0)
-                            <span class="px-2 py-0.5 rounded-full text-xs tabular-nums bg-slate-700 text-white font-semibold">{{ $pOrd }}</span>
+                        @if(($adminPendingOrdersCount ?? 0) > 0)
+                            <span class="px-2 py-0.5 rounded-full text-xs tabular-nums bg-slate-700 text-white font-semibold">{{ $adminPendingOrdersCount }}</span>
                         @endif
                     </a>
 

@@ -53,7 +53,7 @@ class LoginRequest extends FormRequest
         $wantsAdmin = $requireAdmin || $this->routeIs('admin.login.store') || $this->input('user_type') === 'administrador';
 
         // Erro genérico sem confirmar que a senha estava correta para conta sem privilégio administrativo
-        if ($wantsAdmin && ! $user?->is_admin) {
+        if ($wantsAdmin && ! $user?->hasAdminAccess()) {
             Auth::guard('web')->logout();
             RateLimiter::hit($this->throttleKey());
             RateLimiter::hit($this->ipThrottleKey());

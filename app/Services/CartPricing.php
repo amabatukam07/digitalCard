@@ -34,6 +34,8 @@ class CartPricing
      *     subtotal: float,
      *     original_subtotal_cents: int,
      *     original_subtotal: float,
+     *     discount_cents: int,
+     *     discount: float,
      *     paid_subtotal_cents: int,
      *     cashback_percent: float,
      *     cashback_cents: int,
@@ -64,6 +66,7 @@ class CartPricing
         ?User $user = null,
         ?string $cep = null,
         ?Collection $preloadedProducts = null,
+        bool $lockCoupon = false,
     ): array {
         $productIds = array_map('intval', array_keys($rawCart));
         $products = $preloadedProducts ?? Product::with('category')
@@ -71,6 +74,8 @@ class CartPricing
             ->get()
             ->keyBy('id');
 
+        $loyaltySummary = app(LoyaltyTierService::class)->summaryFor($user);
+        $bonusCashbackPercent = (float) $loyaltySummary['bonus_cashback_percent'];
         $maxCashbackPercent = (float) config('digitalcard.max_cashback_percent', 15.0);
 
         $lineItems = [];
@@ -107,7 +112,8 @@ class CartPricing
                 );
             }
 
-            $effectiveCbPercent = min(max(0.0, (float) $product->cashback_percent), $maxCashbackPercent);
+            $baseCbPercent = min(max(0.0, (float) $product->cashback_percent), $maxCashbackPercent);
+            $effectiveCbPercent = min(20.0, $baseCbPercent + $bonusCashbackPercent);
 
             $lineItems[] = [
                 'product' => $product,
@@ -118,6 +124,8 @@ class CartPricing
                 'subtotal' => self::toDecimal($lineSubtotalCents),
                 'original_subtotal_cents' => $lineOrigSubtotalCents,
                 'original_subtotal' => self::toDecimal($lineOrigSubtotalCents),
+                'discount_cents' => 0,
+                'discount' => 0.0,
                 'paid_subtotal_cents' => $lineSubtotalCents,
                 'cashback_percent' => $effectiveCbPercent,
                 'cashback_cents' => 0,
@@ -137,7 +145,8 @@ class CartPricing
 
         if ($couponCode && $subtotalCents > 0) {
             $normalizedCode = strtoupper(trim($couponCode));
-            $candidate = Coupon::where('code', $normalizedCode)->first();
+            $couponQuery = Coupon::where('code', $normalizedCode);
+            $candidate = $lockCoupon ? $couponQuery->lockForUpdate()->first() : $couponQuery->first();
 
             if ($candidate && $candidate->isValidForUser($user, $subtotalCents)) {
                 $coupon = $candidate;
@@ -168,6 +177,8 @@ class CartPricing
                     : (int) round($discountCents * ($line['subtotal_cents'] / $subtotalCents));
                 $itemDiscount = min($itemDiscount, $line['subtotal_cents']);
                 $remainingDiscount -= $itemDiscount;
+                $line['discount_cents'] = $itemDiscount;
+                $line['discount'] = self::toDecimal($itemDiscount);
                 $line['paid_subtotal_cents'] = max(0, $line['subtotal_cents'] - $itemDiscount);
             }
 
@@ -181,7 +192,11 @@ class CartPricing
         // Cálculo de frete (só aplica quando há CEP informado; caso contrário é 0.00 até informar CEP)
         $shippingCents = 0;
         if ($cep !== null && trim($cep) !== '' && $discountedMerchandiseCents > 0) {
-            $shippingQuote = app(ShippingCalculator::class)->calculate($cep, $discountedMerchandiseCents);
+            $shippingQuote = app(ShippingCalculator::class)->calculate(
+                $cep,
+                $discountedMerchandiseCents,
+                $loyaltySummary['free_shipping_min_cents']
+            );
             $shippingCents = $shippingQuote['cost_cents'];
         }
 

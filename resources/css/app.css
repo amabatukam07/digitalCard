@@ -110,7 +110,8 @@
 }
 
 :root:has(> head > meta[name="color-scheme"][content="dark"]) .bg-slate-100,
-:root:has(> head > meta[name="color-scheme"][content="dark"]) .bg-slate-50 {
+:root:has(> head > meta[name="color-scheme"][content="dark"]) .bg-slate-50,
+:root:has(> head > meta[name="color-scheme"][content="dark"]) .bg-paper-dim {
     background-color: #23201C !important;
 }
 
@@ -164,6 +165,18 @@
     background-color: #FFFFFF !important;
 }
 
+:root:has(> head > meta[name="color-scheme"][content="dark"]) .header-dark-bar :where(.bg-paper):not(.bg-surface *),
+:root:has(> head > meta[name="color-scheme"][content="dark"]) .site-footer :where(.bg-paper),
+:root:has(> head > meta[name="color-scheme"][content="dark"]) .virtual-card-shell :where(.bg-paper) {
+    background-color: var(--paper-light) !important;
+}
+
+:root:has(> head > meta[name="color-scheme"][content="dark"]) .header-dark-bar :where(.text-ink):not(.bg-surface *),
+:root:has(> head > meta[name="color-scheme"][content="dark"]) .site-footer :where(.text-ink),
+:root:has(> head > meta[name="color-scheme"][content="dark"]) .virtual-card-shell :where(.text-ink) {
+    color: var(--ink-light) !important;
+}
+
 @media (prefers-color-scheme: dark) {
     :root:not(:has(> head > meta[name="color-scheme"][content="light"])) body,
     :root:not(:has(> head > meta[name="color-scheme"][content="light"])) .bg-paper {
@@ -177,7 +190,8 @@
     }
 
     :root:not(:has(> head > meta[name="color-scheme"][content="light"])) .bg-slate-100,
-    :root:not(:has(> head > meta[name="color-scheme"][content="light"])) .bg-slate-50 {
+    :root:not(:has(> head > meta[name="color-scheme"][content="light"])) .bg-slate-50,
+    :root:not(:has(> head > meta[name="color-scheme"][content="light"])) .bg-paper-dim {
         background-color: #23201C !important;
     }
 
@@ -229,6 +243,40 @@
 
     :root:not(:has(> head > meta[name="color-scheme"][content="light"])) .product-photo-box {
         background-color: #FFFFFF !important;
+    }
+
+    :root:not(:has(> head > meta[name="color-scheme"][content="light"])) .header-dark-bar :where(.bg-paper):not(.bg-surface *),
+    :root:not(:has(> head > meta[name="color-scheme"][content="light"])) .site-footer :where(.bg-paper),
+    :root:not(:has(> head > meta[name="color-scheme"][content="light"])) .virtual-card-shell :where(.bg-paper) {
+        background-color: var(--paper-light) !important;
+    }
+
+    :root:not(:has(> head > meta[name="color-scheme"][content="light"])) .header-dark-bar :where(.text-ink):not(.bg-surface *),
+    :root:not(:has(> head > meta[name="color-scheme"][content="light"])) .site-footer :where(.text-ink),
+    :root:not(:has(> head > meta[name="color-scheme"][content="light"])) .virtual-card-shell :where(.text-ink) {
+        color: var(--ink-light) !important;
+    }
+}
+
+/* Fixed-dark brand surfaces remain legible independent of page color-scheme */
+.header-dark-bar,
+.site-footer,
+.virtual-card-shell {
+    color-scheme: dark;
+}
+
+.header-dark-bar form.bg-paper {
+    color-scheme: light;
+}
+
+@layer components {
+    .app-shell {
+        @apply w-full max-w-[1840px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-10 2xl:px-12;
+    }
+
+    .hero-display {
+        font-size: clamp(2rem, 1.35rem + 2.1vw, 3.5rem);
+        line-height: 1.06;
     }
 }
 
@@ -290,27 +338,6 @@
 
     .animate-subtle-float {
         animation: subtle-float 5.5s ease-in-out infinite;
-    }
-}
-
-@media (prefers-reduced-motion: no-preference) {
-    @supports ((animation-timeline: view()) and (animation-range: entry)) {
-        @keyframes card-scroll-reveal {
-            from {
-                opacity: 0;
-                transform: translateY(22px) scale(0.975);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0) scale(1);
-            }
-        }
-
-        .scroll-reveal-card {
-            animation: card-scroll-reveal auto ease-out backwards;
-            animation-timeline: view(block);
-            animation-range: entry 4% cover 20%;
-        }
     }
 }
 

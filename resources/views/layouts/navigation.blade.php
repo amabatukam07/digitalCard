@@ -13,11 +13,11 @@
         @keydown.escape.window="mobileMenuOpen = false; cartDrawerOpen = false; deptMenuOpen = false; cepModalOpen = false"
         class="sticky top-0 z-40 border-b border-slate-800 max-w-full">
 
-    <div class="bg-ink text-paper border-b border-slate-800">
-        <div class="max-w-[1440px] mx-auto px-3 sm:px-6 lg:px-8">
-            <div class="flex items-center justify-between h-16 gap-2 lg:gap-4 min-w-0">
+    <div class="header-dark-bar bg-ink text-paper border-b border-slate-800">
+        <div class="app-shell">
+            <div class="flex items-center justify-between h-16 gap-3 lg:gap-5 min-w-0">
 
-                <div class="flex items-center gap-2 lg:gap-3 shrink-0 min-w-0">
+                <div class="flex items-center gap-3 lg:gap-4 shrink-0 min-w-0">
                     <a href="{{ route('catalog.index') }}" class="flex items-center gap-2.5 group focus:outline-none shrink-0">
                         <div class="h-9 w-9 rounded-md bg-paper text-ink flex items-center justify-center font-serif text-lg shrink-0">
                             DC
@@ -26,13 +26,15 @@
                             <span class="font-serif text-paper text-xl leading-none">
                                 DigitalCard
                             </span>
-                            <span class="hidden 2xl:block text-xs text-slate-400 mt-0.5">Loja universitária com cartão virtual</span>
+                            <span class="hidden xl:block text-xs text-slate-400 mt-0.5">Cartão virtual &amp; cashback</span>
                         </div>
                     </a>
 
                     <button @click="cepModalOpen = true" type="button"
-                            class="hidden xl:flex items-center gap-1.5 px-2.5 py-1.5 rounded-md hover:bg-slate-800 border border-transparent hover:border-slate-700 transition text-left max-w-[160px] min-w-0 shrink">
-                        <x-icon name="truck" class="size-4 text-slate-300" />
+                            class="hidden xl:flex items-center gap-2 px-2.5 py-1.5 rounded-md hover:bg-slate-800/80 border border-transparent hover:border-slate-700 transition text-left max-w-[220px] min-w-0 shrink">
+                        <span class="h-8 w-8 rounded-md bg-slate-800/80 border border-slate-700/80 flex items-center justify-center shrink-0">
+                            <x-icon name="truck" class="size-4 text-slate-300" />
+                        </span>
                         <div class="truncate min-w-0">
                             <span class="block text-xs text-slate-400 leading-none truncate">Enviar para</span>
                             <span class="block text-xs font-medium text-paper truncate mt-0.5 tabular-nums">{{ $savedCep ? 'CEP '.$savedCep : 'Informe seu CEP' }}</span>
@@ -40,11 +42,78 @@
                     </button>
                 </div>
 
-                <div class="flex-1 min-w-0 max-w-xl hidden md:block">
+                <div x-data="{
+                        query: @js((string) request('q', '')),
+                        open: false,
+                        loading: false,
+                        products: [],
+                        categories: [],
+                        activeIndex: -1,
+                        debounceTimer: null,
+                        reqSeq: 0,
+                        get totalItems() {
+                            return this.categories.length + this.products.length;
+                        },
+                        scheduleFetch() {
+                            clearTimeout(this.debounceTimer);
+                            const q = this.query.trim();
+                            if (q.length < 2) {
+                                this.products = [];
+                                this.categories = [];
+                                this.open = false;
+                                this.loading = false;
+                                this.activeIndex = -1;
+                                return;
+                            }
+                            this.debounceTimer = setTimeout(() => this.fetchSuggestions(q), 220);
+                        },
+                        async fetchSuggestions(q) {
+                            const seq = ++this.reqSeq;
+                            this.loading = true;
+                            try {
+                                const url = @js(route('catalog.suggestions')) + '?q=' + encodeURIComponent(q);
+                                const res = await fetch(url, {
+                                    headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
+                                });
+                                if (!res.ok || seq !== this.reqSeq) return;
+                                const data = await res.json();
+                                if (seq !== this.reqSeq) return;
+                                this.categories = data.categories || [];
+                                this.products = data.products || [];
+                                this.activeIndex = -1;
+                                this.open = true;
+                            } catch (e) {
+                            } finally {
+                                if (seq === this.reqSeq) this.loading = false;
+                            }
+                        },
+                        moveDown() {
+                            if (!this.open && this.totalItems > 0) this.open = true;
+                            if (this.totalItems > 0) {
+                                this.activeIndex = (this.activeIndex + 1) % this.totalItems;
+                            }
+                        },
+                        moveUp() {
+                            if (this.totalItems > 0) {
+                                this.activeIndex = (this.activeIndex - 1 + this.totalItems) % this.totalItems;
+                            }
+                        },
+                        submitActive(event) {
+                            if (!this.open || this.activeIndex < 0) return;
+                            event.preventDefault();
+                            const item = this.activeIndex < this.categories.length
+                                ? this.categories[this.activeIndex]
+                                : this.products[this.activeIndex - this.categories.length];
+                            if (item && item.url) window.location.href = item.url;
+                        }
+                     }"
+                     @click.outside="open = false"
+                     class="relative flex-1 min-w-0 max-w-3xl hidden md:block">
                     <form action="{{ route('catalog.index') }}" method="GET"
+                          @submit="submitActive($event)"
                           class="flex items-stretch w-full min-w-0 rounded-md overflow-hidden bg-paper text-ink border border-slate-700 focus-within:ring-2 focus-within:ring-accent-500">
                         <select name="category" aria-label="Departamento"
-                                class="hidden xl:block max-w-[130px] truncate bg-paper hover:bg-slate-200 border-0 border-r border-line text-xs font-medium text-ink py-2.5 pl-2.5 pr-6 focus:ring-0 cursor-pointer transition shrink-0">
+                                class="hidden xl:block max-w-[175px] truncate bg-paper hover:bg-slate-200 border-0 border-r border-line text-xs font-medium text-ink py-2.5 pl-3 pr-7 focus:ring-0 cursor-pointer transition shrink-0">
                             <option value="">Todos</option>
                             @foreach($navCategories as $navCat)
                                 <option value="{{ $navCat['slug'] }}" {{ request('category') === $navCat['slug'] ? 'selected' : '' }}>
@@ -53,15 +122,73 @@
                             @endforeach
                         </select>
 
-                        <input type="text" name="q" value="{{ request('q') }}"
-                               placeholder="Buscar produtos..."
-                               class="flex-1 min-w-0 w-full bg-paper border-0 text-sm text-ink placeholder-slate-500 py-2 px-3 focus:ring-0">
+                        <input type="search" name="q" x-model="query"
+                               @input="scheduleFetch()"
+                               @focus="if (totalItems > 0) open = true"
+                               @keydown.arrow-down.prevent="moveDown()"
+                               @keydown.arrow-up.prevent="moveUp()"
+                               @keydown.escape="open = false"
+                               autocorrect="off" autocapitalize="off" spellcheck="false" autocomplete="off" enterkeyhint="search"
+                               aria-label="Buscar produtos, marcas ou categorias"
+                               placeholder="Buscar produtos, marcas ou categorias..."
+                               class="flex-1 min-w-0 w-full bg-paper border-0 text-sm text-ink placeholder-slate-500 py-2 px-3.5 focus:ring-0">
 
                         <button type="submit" aria-label="Buscar produtos"
                                 class="bg-paper hover:bg-slate-200 text-ink border-l border-line px-3.5 flex items-center justify-center transition shrink-0">
                             <x-icon name="search" class="size-4" />
                         </button>
                     </form>
+
+                    <div x-show="open" x-cloak x-transition
+                         aria-live="polite"
+                         class="absolute left-0 right-0 top-full mt-1.5 rounded-xl border border-line bg-surface text-ink shadow-float z-50 overflow-hidden divide-y divide-line">
+                        <template x-if="categories.length > 0">
+                            <div class="p-2 bg-paper/60 space-y-1">
+                                <span class="px-2.5 py-0.5 block text-[11px] font-semibold text-slate-500">Categorias</span>
+                                <template x-for="(cat, cIdx) in categories" :key="'cat-' + cat.id">
+                                    <a :href="cat.url"
+                                       :class="activeIndex === cIdx ? 'bg-paper text-ink font-semibold' : 'text-slate-700 hover:bg-paper'"
+                                       class="flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs transition">
+                                        <span class="flex items-center gap-2">
+                                            <x-icon name="tag" class="size-3.5 text-accent-600" />
+                                            <span x-text="cat.name"></span>
+                                        </span>
+                                        <span class="text-[11px] text-slate-400">Ver categoria →</span>
+                                    </a>
+                                </template>
+                            </div>
+                        </template>
+
+                        <template x-if="products.length > 0">
+                            <div class="p-2 space-y-1 max-h-80 overflow-y-auto">
+                                <span class="px-2.5 py-0.5 block text-[11px] font-semibold text-slate-500">Produtos em destaque</span>
+                                <template x-for="(item, pIdx) in products" :key="'prod-' + item.id">
+                                    <a :href="item.url"
+                                       :class="activeIndex === (categories.length + pIdx) ? 'bg-paper' : 'hover:bg-paper'"
+                                       class="flex items-center gap-3 px-2.5 py-2 rounded-lg transition">
+                                        <img :src="item.thumbnail_url" :alt="item.name" width="40" height="50"
+                                             class="h-10 w-10 rounded border border-line bg-white object-contain p-0.5 shrink-0">
+                                        <div class="flex-1 min-w-0">
+                                            <p class="text-xs font-medium text-ink truncate" x-text="item.name"></p>
+                                            <p class="text-[11px] text-slate-500 truncate" x-text="item.category_name"></p>
+                                        </div>
+                                        <div class="text-right shrink-0">
+                                            <span class="font-mono text-xs font-semibold text-ink tabular-nums block" x-text="item.formatted_price"></span>
+                                            <span x-show="item.cashback_percent > 0"
+                                                  class="text-[11px] font-medium text-money-600 tabular-nums"
+                                                  x-text="'+' + item.cashback_percent + '% cashback'"></span>
+                                        </div>
+                                    </a>
+                                </template>
+                            </div>
+                        </template>
+
+                        <template x-if="!loading && totalItems === 0 && query.trim().length >= 2">
+                            <div class="px-4 py-4 text-center text-xs text-slate-500">
+                                Nenhum produto encontrado para "<span class="font-medium text-ink" x-text="query"></span>".
+                            </div>
+                        </template>
+                    </div>
                 </div>
 
                 <div class="hidden md:flex items-center gap-1.5 lg:gap-2 shrink-0">
@@ -129,22 +256,77 @@
                     <button type="button"
                             onclick="window.toggleColorScheme && window.toggleColorScheme()"
                             title="Alternar tema claro ou escuro"
-                            class="relative p-2 rounded-md text-slate-300 hover:text-paper hover:bg-slate-800 transition shrink-0">
+                            class="relative inline-flex items-center justify-center h-9 w-9 rounded-md text-slate-300 hover:text-paper hover:bg-slate-800 transition shrink-0">
                         <span class="theme-toggle-moon items-center justify-center">
-                            <x-icon name="moon" class="size-5" />
+                            <x-icon name="moon" class="size-[18px]" />
                             <span class="sr-only">Ativar modo escuro</span>
                         </span>
                         <span class="theme-toggle-sun items-center justify-center">
-                            <x-icon name="sun" class="size-5" />
+                            <x-icon name="sun" class="size-[18px]" />
                             <span class="sr-only">Ativar modo claro</span>
                         </span>
                     </button>
 
+                    @auth
+                        <div class="relative shrink-0" x-data="{ notifOpen: false }" @click.outside="notifOpen = false">
+                            <button @click="notifOpen = !notifOpen" type="button"
+                                    aria-label="Notificações"
+                                    class="relative inline-flex items-center justify-center h-9 w-9 rounded-md text-slate-300 hover:text-paper hover:bg-slate-800 transition shrink-0">
+                                <x-icon name="bell" class="size-[18px]" />
+                                @if(($unreadNotificationsCount ?? 0) > 0)
+                                    <span class="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-accent-500 text-paper text-xs font-semibold tabular-nums flex items-center justify-center">
+                                        {{ $unreadNotificationsCount }}
+                                    </span>
+                                @endif
+                            </button>
+
+                            <div x-show="notifOpen" x-cloak x-transition
+                                 class="absolute right-0 mt-2 w-80 rounded-lg bg-surface text-ink shadow-float border border-line z-50 overflow-hidden">
+                                <div class="flex items-center justify-between px-4 py-2.5 border-b border-line bg-paper">
+                                    <span class="text-xs font-semibold text-ink">Notificações</span>
+                                    @if(($unreadNotificationsCount ?? 0) > 0)
+                                        <form action="{{ route('notifications.read-all') }}" method="POST">
+                                            @csrf
+                                            <button type="submit" class="text-xs font-medium text-accent-600 hover:underline">
+                                                Marcar todas como lidas
+                                            </button>
+                                        </form>
+                                    @endif
+                                </div>
+
+                                <div class="divide-y divide-line max-h-72 overflow-y-auto text-xs">
+                                    @forelse($recentNotifications ?? [] as $notif)
+                                        <a href="{{ $notif->data['url'] ?? '#' }}"
+                                           class="block px-4 py-3 hover:bg-paper transition {{ $notif->read_at === null ? 'bg-accent-50/40' : '' }}">
+                                            <p class="font-semibold text-ink">{{ $notif->data['title'] ?? 'Atualização' }}</p>
+                                            <p class="text-slate-600 mt-0.5">{{ $notif->data['message'] ?? '' }}</p>
+                                            <span class="text-slate-400 text-[11px] block mt-1">{{ $notif->created_at?->diffForHumans() }}</span>
+                                        </a>
+                                    @empty
+                                        <p class="px-4 py-6 text-center text-slate-500">Nenhuma notificação recente.</p>
+                                    @endforelse
+                                </div>
+                            </div>
+                        </div>
+                    @endauth
+
+                    <a href="{{ route('compare.index') }}"
+                       title="Comparar produtos"
+                       aria-label="Comparar produtos"
+                       class="relative inline-flex items-center justify-center h-9 w-9 rounded-md text-slate-300 hover:text-paper hover:bg-slate-800 transition shrink-0">
+                        <x-icon name="scale" class="size-[18px]" />
+                        @if(($compareCount ?? 0) > 0)
+                            <span class="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-accent-500 text-paper text-xs font-semibold tabular-nums flex items-center justify-center">
+                                {{ $compareCount }}
+                            </span>
+                        @endif
+                    </a>
+
                     <a href="{{ route('wishlist.index') }}"
                        title="Lista de desejos"
                        aria-label="Lista de desejos"
-                       class="relative p-2 rounded-md text-slate-300 hover:text-paper hover:bg-slate-800 transition shrink-0">
-                        <x-icon name="heart" class="size-5" />
+                       class="relative inline-flex items-center justify-center h-9 w-9 rounded-md text-slate-300 hover:text-paper hover:bg-slate-800 transition shrink-0">
+                        <x-icon name="heart" class="size-[18px]" />
                         @if($wishlistCount > 0)
                             <span class="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-paper text-ink text-xs font-semibold tabular-nums flex items-center justify-center">
                                 {{ $wishlistCount }}
@@ -154,7 +336,7 @@
 
                     <button @click="cartDrawerOpen = true" type="button"
                             aria-label="Abrir carrinho de compras"
-                            class="flex items-center gap-2 px-2.5 py-2 rounded-md bg-paper text-ink hover:bg-slate-200 transition shrink-0">
+                            class="h-9 flex items-center gap-2 px-3 rounded-md bg-paper text-ink hover:bg-slate-200 transition shrink-0">
                         <div class="relative">
                             <x-icon name="shopping-cart" class="size-4 text-ink" />
                             @if($cartItemCount > 0)
@@ -163,7 +345,7 @@
                                 </span>
                             @endif
                         </div>
-                        <div class="hidden 2xl:block text-left whitespace-nowrap">
+                        <div class="hidden xl:block text-left whitespace-nowrap">
                             <span class="font-mono tabular-nums text-xs font-semibold text-ink leading-tight">
                                 R$ {{ number_format($drawerTotal, 2, ',', '.') }}
                             </span>
@@ -224,6 +406,12 @@
                                             <span class="px-1.5 py-0.5 rounded-full text-xs tabular-nums bg-ink text-paper font-semibold">{{ $cartItemCount }}</span>
                                         @endif
                                     </a>
+                                    <a href="{{ route('compare.index') }}" class="flex items-center justify-between px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100">
+                                        <span>Comparador</span>
+                                        @if(($compareCount ?? 0) > 0)
+                                            <span class="px-1.5 py-0.5 rounded-full text-xs tabular-nums bg-ink text-paper font-semibold">{{ $compareCount }}</span>
+                                        @endif
+                                    </a>
                                     <a href="{{ route('wishlist.index') }}" class="block px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100">
                                         Favoritos ({{ $wishlistCount }})
                                     </a>
@@ -258,7 +446,8 @@
                 <div class="flex md:hidden items-center gap-1.5 shrink-0">
                     <button type="button"
                             onclick="window.toggleColorScheme && window.toggleColorScheme()"
-                            class="p-2 rounded-md text-slate-300 hover:text-paper hover:bg-slate-800 transition">
+                            title="Alternar tema claro ou escuro"
+                            class="inline-flex items-center justify-center h-9 w-9 rounded-md text-slate-300 hover:text-paper hover:bg-slate-800 transition">
                         <span class="theme-toggle-moon items-center justify-center">
                             <x-icon name="moon" class="size-5" />
                             <span class="sr-only">Ativar modo escuro</span>
@@ -269,7 +458,7 @@
                         </span>
                     </button>
 
-                    <a href="{{ route('cart.index') }}" aria-label="Carrinho" class="relative p-2 text-paper">
+                    <a href="{{ route('cart.index') }}" aria-label="Carrinho" class="relative inline-flex items-center justify-center h-9 w-9 rounded-md text-paper hover:bg-slate-800 transition">
                         <x-icon name="shopping-cart" class="size-5" />
                         @if($cartItemCount > 0)
                             <span class="absolute top-0.5 right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-paper text-ink text-xs font-semibold tabular-nums flex items-center justify-center">
@@ -279,7 +468,7 @@
                     </a>
                     <button @click="mobileMenuOpen = !mobileMenuOpen" type="button"
                             aria-label="Abrir menu de navegação"
-                            class="p-2 rounded-md text-slate-300 hover:text-paper hover:bg-slate-800 focus:outline-none">
+                            class="inline-flex items-center justify-center h-9 w-9 rounded-md text-slate-300 hover:text-paper hover:bg-slate-800 focus:outline-none transition">
                         <span x-show="!mobileMenuOpen"><x-icon name="menu" class="size-5" /></span>
                         <span x-show="mobileMenuOpen" x-cloak><x-icon name="x" class="size-5" /></span>
                     </button>
@@ -299,9 +488,9 @@
         </div>
     </div>
 
-    <div class="bg-ink text-slate-200 border-b border-slate-800 text-xs">
-        <div class="max-w-[1440px] mx-auto px-3 sm:px-6 lg:px-8 flex items-center justify-between h-10 gap-3 overflow-x-auto no-scrollbar">
-            <div class="flex items-center gap-1 sm:gap-2 whitespace-nowrap min-w-0">
+    <div class="header-dark-bar bg-ink text-slate-200 border-b border-slate-800 text-xs">
+        <div class="app-shell flex items-center justify-between h-10 gap-3">
+            <div class="flex items-center gap-2 whitespace-nowrap min-w-0 flex-1">
                 <div class="relative shrink-0" @click.outside="deptMenuOpen = false">
                     <button @click="deptMenuOpen = !deptMenuOpen" type="button"
                             class="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-paper font-medium transition">
@@ -312,7 +501,7 @@
 
                     <div x-show="deptMenuOpen" x-cloak
                          x-transition
-                         class="fixed left-3 right-3 sm:right-auto sm:left-6 mt-2 sm:w-[520px] max-w-[calc(100vw-1.5rem)] rounded-lg bg-surface text-ink shadow-float border border-line p-5 z-50 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                         class="absolute left-0 top-full mt-1.5 w-[min(680px,calc(100vw-2rem))] rounded-lg bg-surface text-ink shadow-float border border-line p-5 z-50 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 whitespace-normal">
                         @foreach($navCategories as $parentCat)
                             <div class="space-y-1.5">
                                 <a href="{{ route('catalog.category', $parentCat['slug']) }}"
@@ -337,22 +526,29 @@
                     </div>
                 </div>
 
-                <a href="{{ route('catalog.index', ['sort' => 'maior_desconto']) }}"
-                   class="px-2.5 py-1 rounded-md font-medium hover:text-paper hover:bg-slate-800 transition shrink-0 {{ request('sort') === 'maior_desconto' ? 'text-accent-400 font-semibold' : 'text-slate-300' }}">
-                    Em oferta
-                </a>
-
-                <a href="{{ route('catalog.index', ['cashback' => 1]) }}"
-                   class="px-2.5 py-1 rounded-md font-medium text-money-400 hover:bg-slate-800 transition shrink-0">
-                    Cashback
-                </a>
-
-                @foreach($navCategories as $topCat)
-                    <a href="{{ route('catalog.category', $topCat['slug']) }}"
-                       class="px-2.5 py-1 rounded-md font-medium hover:text-paper hover:bg-slate-800 transition shrink-0 {{ request()->is('categoria/'.$topCat['slug']) ? 'text-accent-400 font-semibold' : 'text-slate-300' }}">
-                        {{ $topCat['name'] }}
+                <div class="flex items-center gap-1 sm:gap-2 overflow-x-auto no-scrollbar min-w-0">
+                    <a href="{{ route('catalog.index', ['sort' => 'maior_desconto']) }}"
+                       class="px-2.5 py-1 rounded-md font-medium hover:text-paper hover:bg-slate-800 transition shrink-0 {{ request('sort') === 'maior_desconto' ? 'text-accent-400 font-semibold' : 'text-slate-300' }}">
+                        Em oferta
                     </a>
-                @endforeach
+
+                    <a href="{{ route('catalog.index', ['cashback' => 1]) }}"
+                       class="px-2.5 py-1 rounded-md font-medium text-money-400 hover:bg-slate-800 transition shrink-0">
+                        Cashback
+                    </a>
+
+                    <a href="{{ route('bundles.index') }}"
+                       class="px-2.5 py-1 rounded-md font-medium hover:text-paper hover:bg-slate-800 transition shrink-0 {{ request()->routeIs('bundles.*') ? 'text-accent-400 font-semibold' : 'text-slate-300' }}">
+                        Kits &amp; Setups
+                    </a>
+
+                    @foreach($navCategories as $topCat)
+                        <a href="{{ route('catalog.category', $topCat['slug']) }}"
+                           class="px-2.5 py-1 rounded-md font-medium hover:text-paper hover:bg-slate-800 transition shrink-0 {{ request()->is('categoria/'.$topCat['slug']) ? 'text-accent-400 font-semibold' : 'text-slate-300' }}">
+                            {{ $topCat['name'] }}
+                        </a>
+                    @endforeach
+                </div>
             </div>
 
             <div class="hidden xl:flex items-center gap-3 whitespace-nowrap shrink-0">
@@ -386,7 +582,7 @@
         </div>
     </div>
 
-    <div x-show="mobileMenuOpen" x-cloak class="md:hidden bg-ink border-b border-slate-800 px-4 pt-3 pb-6 space-y-3 text-slate-200">
+    <div x-show="mobileMenuOpen" x-cloak class="header-dark-bar md:hidden bg-ink border-b border-slate-800 px-4 pt-3 pb-6 space-y-3 text-slate-200">
         @auth
             @if(auth()->user()->virtualCard)
                 <div class="p-3.5 rounded-md bg-slate-900 border border-slate-800 flex items-center justify-between">
@@ -405,6 +601,8 @@
 
         <div class="space-y-1">
             <a href="{{ route('catalog.index') }}" class="block px-3 py-2 rounded-md text-sm font-medium text-paper hover:bg-slate-800">Catálogo</a>
+            <a href="{{ route('bundles.index') }}" class="block px-3 py-2 rounded-md text-sm text-slate-300 hover:bg-slate-800">Kits &amp; Setups</a>
+            <a href="{{ route('compare.index') }}" class="block px-3 py-2 rounded-md text-sm text-slate-300 hover:bg-slate-800">Comparador ({{ $compareCount ?? 0 }})</a>
             <a href="{{ route('wishlist.index') }}" class="block px-3 py-2 rounded-md text-sm text-slate-300 hover:bg-slate-800">Favoritos ({{ $wishlistCount }})</a>
             <a href="{{ route('cart.index') }}" class="block px-3 py-2 rounded-md text-sm text-slate-300 hover:bg-slate-800">Carrinho ({{ $cartItemCount }})</a>
             @auth
@@ -486,7 +684,7 @@
                      x-transition:leave="transform transition ease-in-out duration-200"
                      x-transition:leave-start="translate-x-0"
                      x-transition:leave-end="translate-x-full"
-                     class="pointer-events-auto w-screen max-w-md bg-surface shadow-float border-l border-line flex flex-col h-screen">
+                     class="pointer-events-auto w-screen max-w-md bg-surface shadow-float border-l border-line flex flex-col h-dvh">
 
                     <div class="flex items-center justify-between px-6 py-4 bg-ink text-paper">
                         <div>
@@ -498,9 +696,11 @@
                     </div>
 
                     @php
-                        $navFreeMin = (float) config('digitalcard.free_shipping_min_total', 299.00);
+                        $navFreeMin = auth()->check()
+                            ? (float) app(\App\Services\LoyaltyTierService::class)->summaryFor(auth()->user())['free_shipping_min']
+                            : (float) config('digitalcard.free_shipping_min_total', 299.00);
                         $navMissingFree = max(0.0, round($navFreeMin - ($drawerTotal ?? 0), 2));
-                        $navFreePct = min(100, (int) round((($drawerTotal ?? 0) / max(1.0, $navFreeMin)) * 100));
+                        $navFreePct = $navFreeMin <= 0 ? 100 : min(100, (int) round((($drawerTotal ?? 0) / $navFreeMin) * 100));
                     @endphp
                     <div class="border-b border-line px-6 py-3 space-y-1.5 text-xs text-ink bg-paper">
                         <div class="flex items-center justify-between font-medium">

@@ -2,6 +2,7 @@
     'card' => null,
     'holderName' => null,
     'interactive' => false,
+    'tierLabel' => null,
 ])
 @php
     $isDemo = $card === null;
@@ -9,16 +10,16 @@
     $balanceFormatted = $card ? number_format((float) $card->balance, 2, ',', '.') : '1.250,00';
     $cashbackFormatted = $card ? number_format((float) $card->cashback_earned, 2, ',', '.') : '48,90';
     $expiration = $card ? $card->expiration_date : '12/29';
-    $holder = $holderName ?: (auth()->user()?->name ?? 'Estudante DigitalCard');
+    $holder = $holderName ?: (auth()->user()?->name ?? 'Titular DigitalCard');
     $isActive = $card ? (bool) $card->is_active : true;
 @endphp
 
 @if($interactive && $card)
-    <div class="cursor-pointer select-none" style="perspective: 1200px;" @click="flipped = ! flipped">
+    <div class="virtual-card-shell cursor-pointer select-none" style="perspective: 1200px;" @click="flipped = ! flipped">
         <div class="relative aspect-[1.586/1] w-full transition-transform duration-500"
              :style="flipped ? 'transform: rotateY(180deg); transform-style: preserve-3d;' : 'transform-style: preserve-3d;'">
 
-            <div class="absolute inset-0 overflow-hidden rounded-xl border border-slate-800 bg-ink p-5 sm:p-6 text-paper"
+            <div class="absolute inset-0 overflow-hidden rounded-xl border border-slate-700/80 bg-gradient-to-br from-[#1C1917] via-[#14110F] to-[#0A0908] p-5 sm:p-6 text-paper"
                  style="backface-visibility: hidden;">
                 <div class="relative flex h-full flex-col justify-between">
                     <div class="flex items-start justify-between gap-2">
@@ -27,8 +28,16 @@
                                 DC
                             </div>
                             <div>
-                                <span class="block font-serif text-lg text-paper leading-none">DigitalCard</span>
-                                <span class="block text-xs text-slate-300 mt-0.5">Cartão fictício</span>
+                                <div class="flex items-center gap-2">
+                                    <span class="block font-serif text-lg text-paper leading-none">DigitalCard</span>
+                                    @if($tierLabel)
+                                        <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-800 border border-slate-600 text-[10px] font-semibold uppercase tracking-wide text-accent-400">
+                                            <x-icon name="crown" class="size-3" />
+                                            <span>{{ $tierLabel }}</span>
+                                        </span>
+                                    @endif
+                                </div>
+                                <span class="block text-xs text-slate-300 mt-0.5">Cartão Virtual</span>
                             </div>
                         </div>
 
@@ -74,7 +83,7 @@
                 </div>
             </div>
 
-            <div class="absolute inset-0 overflow-hidden rounded-xl border border-slate-800 bg-ink p-5 sm:p-6 text-paper"
+            <div class="absolute inset-0 overflow-hidden rounded-xl border border-slate-700/80 bg-gradient-to-br from-[#1C1917] via-[#14110F] to-[#0A0908] p-5 sm:p-6 text-paper"
                  style="backface-visibility: hidden; transform: rotateY(180deg);">
                 <div class="flex h-full flex-col justify-between">
                     <div class="flex items-center justify-between">
@@ -105,8 +114,8 @@
         </div>
     </div>
 @else
-    <div class="space-y-2 animate-subtle-float">
-        <div class="aspect-[1.586/1] w-full overflow-hidden rounded-xl border border-slate-800 bg-ink p-5 sm:p-6 text-paper flex flex-col justify-between shadow-float transition-transform duration-300 hover:scale-[1.02]">
+    <div class="virtual-card-shell animate-subtle-float">
+        <div class="aspect-[1.586/1] w-full overflow-hidden rounded-xl border border-slate-700/80 bg-gradient-to-br from-[#1C1917] via-[#14110F] to-[#0A0908] p-5 sm:p-6 text-paper flex flex-col justify-between shadow-float transition-transform duration-300 hover:scale-[1.02]">
             <div class="flex items-start justify-between gap-2">
                 <div class="flex items-center gap-2.5">
                     <div class="h-8 w-8 rounded-md bg-paper text-ink flex items-center justify-center font-serif text-base">
@@ -114,7 +123,7 @@
                     </div>
                     <div>
                         <span class="block font-serif text-lg text-paper leading-none">DigitalCard</span>
-                        <span class="block text-xs text-slate-300 mt-0.5">Cartão fictício</span>
+                        <span class="block text-xs text-slate-300 mt-0.5">Cartão Virtual</span>
                     </div>
                 </div>
 
@@ -156,8 +165,5 @@
                 </div>
             </div>
         </div>
-        @if($isDemo)
-            <p class="text-xs text-slate-500 text-right">Cartão fictício</p>
-        @endif
     </div>
 @endif

@@ -18,10 +18,8 @@
         @vite(['resources/css/app.css', 'resources/js/app.js'])
     </head>
     <body class="font-sans text-ink antialiased min-h-screen flex flex-col justify-between bg-paper">
-        <x-academic-banner />
-
-        <header class="bg-surface border-b border-line py-4 px-4">
-            <div class="max-w-7xl mx-auto flex items-center justify-between">
+        <header class="bg-surface border-b border-line py-4">
+            <div class="app-shell flex items-center justify-between">
                 <a href="{{ route('catalog.index') }}" class="focus:outline-none">
                     <x-application-logo />
                 </a>
@@ -54,7 +52,7 @@
         </main>
 
         <footer class="py-5 text-center text-xs text-slate-500 border-t border-line bg-surface">
-            © {{ date('Y') }} DigitalCard — Projeto universitário de demonstração. Nenhum pagamento, cartão ou entrega é real.
+            © {{ date('Y') }} DigitalCard — Comércio eletrônico e carteira digital.
         </footer>
     </body>
 </html>

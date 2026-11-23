@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\UserRole;
 use Database\Factories\UserFactory;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -80,5 +81,61 @@ class User extends Authenticatable implements MustVerifyEmail
     public function wishlists(): HasMany
     {
         return $this->hasMany(Wishlist::class);
+    }
+
+    public function priceAlerts(): HasMany
+    {
+        return $this->hasMany(PriceAlert::class);
+    }
+
+    public function sentGiftCards(): HasMany
+    {
+        return $this->hasMany(GiftCard::class, 'purchaser_user_id');
+    }
+
+    public function redeemedGiftCards(): HasMany
+    {
+        return $this->hasMany(GiftCard::class, 'redeemer_user_id');
+    }
+
+    public function productQuestions(): HasMany
+    {
+        return $this->hasMany(ProductQuestion::class);
+    }
+
+    public function savingsGoals(): HasMany
+    {
+        return $this->hasMany(SavingsGoal::class);
+    }
+
+    public function roleEnum(): UserRole
+    {
+        $role = UserRole::tryFrom((string) ($this->role ?? ''));
+
+        if ($this->is_admin && ($role === null || $role === UserRole::Customer)) {
+            return UserRole::Admin;
+        }
+
+        return $role ?? UserRole::Customer;
+    }
+
+    public function hasAdminAccess(): bool
+    {
+        return (bool) $this->is_admin || $this->roleEnum()->isBackoffice();
+    }
+
+    public function canApproveRecharges(): bool
+    {
+        return (bool) $this->is_admin || in_array($this->roleEnum(), [UserRole::Admin, UserRole::Finance], true);
+    }
+
+    public function canManageOrders(): bool
+    {
+        return (bool) $this->is_admin || in_array($this->roleEnum(), [UserRole::Admin, UserRole::Logistics], true);
+    }
+
+    public function canManageCatalog(): bool
+    {
+        return (bool) $this->is_admin || in_array($this->roleEnum(), [UserRole::Admin, UserRole::Catalog], true);
     }
 }

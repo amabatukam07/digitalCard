@@ -12,7 +12,7 @@ class RechargePolicy
      */
     public function viewReceipt(User $user, Recharge $recharge): bool
     {
-        if ($user->is_admin) {
+        if ($user->hasAdminAccess()) {
             return true;
         }
 
@@ -20,11 +20,11 @@ class RechargePolicy
     }
 
     /**
-     * Apenas um administrador que NÃO seja o titular do cartão pode aprovar ou recusar a recarga.
+     * Apenas um administrador/financeiro que NÃO seja o titular do cartão pode aprovar ou recusar a recarga.
      */
     public function review(User $user, Recharge $recharge): bool
     {
-        if (! $user->is_admin) {
+        if (! $user->canApproveRecharges()) {
             return false;
         }
 

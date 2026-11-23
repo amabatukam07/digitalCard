@@ -4,9 +4,9 @@
     'priority' => false,
 ])
 @php
-    $hasCustom = $product->image_path && (str_starts_with($product->image_path, 'products/') || str_starts_with($product->image_path, 'uploads/')) && is_file(storage_path('app/public/'.ltrim($product->image_path, '/')));
-    $hasFull = $product->slug && is_file(public_path('images/products/'.$product->slug.'.webp'));
-    $hasThumb = $product->slug && is_file(public_path('images/products/'.$product->slug.'-400.webp'));
+    $hasCustom = $product->image_path && (str_starts_with($product->image_path, 'products/') || str_starts_with($product->image_path, 'uploads/')) && \App\Support\AssetCache::fileExists(storage_path('app/public/'.ltrim($product->image_path, '/')));
+    $hasFull = $product->slug && \App\Support\AssetCache::fileExists(public_path('images/products/'.$product->slug.'.webp'));
+    $hasThumb = $product->slug && \App\Support\AssetCache::fileExists(public_path('images/products/'.$product->slug.'-400.webp'));
     $exists = $hasCustom || $hasFull || $hasThumb;
 
     $w = $size === 'full' ? 800 : ($size === 'thumb' ? 80 : 400);
@@ -30,6 +30,14 @@
         'seguranca-conectividade' => 'lightbulb',
         'cameras-acao' => 'camera',
         'drones-estabilizadores' => 'plane',
+        'cadeiras-ergonomicas' => 'armchair',
+        'mesas-iluminacao-setup' => 'lightbulb',
+        'microfones-interfaces' => 'mic',
+        'streaming-acessorios' => 'sliders-horizontal',
+        'power-banks-carregadores' => 'battery-charging',
+        'mochilas-cases' => 'package',
+        'monitoramento-fitness' => 'heart-pulse',
+        'cuidados-pessoais-tech' => 'sparkles',
     ];
     if ($product->category?->slug && isset($slugMap[$product->category->slug])) {
         $catIcon = $slugMap[$product->category->slug];
@@ -54,7 +62,7 @@
         $aspectClass = $size === 'full' ? 'aspect-[4/5]' : 'aspect-square';
         $imgFitClass = $size === 'full' ? 'h-full w-full object-contain p-4' : ($size === 'thumb' ? 'h-full w-full object-contain p-1' : 'h-full w-full object-contain p-3 transition-transform duration-500 ease-out group-hover:scale-105');
     @endphp
-    <div {{ $attributes->merge(['class' => $aspectClass.' product-photo-box w-full overflow-hidden bg-surface flex items-center justify-center']) }}>
+    <div {{ $attributes->merge(['class' => $aspectClass.' product-photo-box w-full overflow-hidden bg-white flex items-center justify-center']) }}>
         <img src="{{ $mainSrc }}"
              @if($srcset !== '') srcset="{{ $srcset }}" sizes="{{ $size === 'full' ? '(min-width: 1024px) 50vw, 100vw' : '(min-width: 1024px) 25vw, 50vw' }}" @endif
              width="{{ $w }}"

@@ -16,6 +16,8 @@ class Recharge extends Model
 
     public const STATUS_REJECTED = 'recusado';
 
+    public const STATUS_EXPIRED = 'expirado';
+
     protected $fillable = [
         'virtual_card_id',
         'payment_method',

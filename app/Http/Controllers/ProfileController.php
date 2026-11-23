@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\ProfileUpdateRequest;
 use App\Models\AuditLog;
 use App\Models\Order;
+use App\Services\LoyaltyTierService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -15,10 +16,26 @@ use Illuminate\View\View;
 
 class ProfileController extends Controller
 {
-    public function edit(Request $request): View
+    public function edit(Request $request, LoyaltyTierService $loyaltyTierService): View
     {
+        $user = $request->user();
+        $addresses = $user->addresses()
+            ->orderByDesc('is_default')
+            ->latest()
+            ->get();
+
+        $priceAlerts = $user->priceAlerts()
+            ->with('product.category')
+            ->latest()
+            ->get();
+
+        $loyaltySummary = $loyaltyTierService->summaryFor($user);
+
         return view('profile.edit', [
-            'user' => $request->user(),
+            'user' => $user,
+            'addresses' => $addresses,
+            'priceAlerts' => $priceAlerts,
+            'loyaltySummary' => $loyaltySummary,
         ]);
     }
 
@@ -50,6 +67,13 @@ class ProfileController extends Controller
         if ($card && (float) $card->balance > 0) {
             throw ValidationException::withMessages([
                 'balance' => 'Não é possível excluir a conta enquanto houver saldo disponível no Cartão Virtual (R$ '.number_format((float) $card->balance, 2, ',', '.').'). Utilize o saldo antes de encerrar a conta.',
+            ])->errorBag('userDeletion');
+        }
+
+        $goalsReserved = (float) $user->savingsGoals()->sum('current_amount');
+        if ($goalsReserved > 0) {
+            throw ValidationException::withMessages([
+                'goals' => 'Resgate os valores guardados no Cofrinho DigitalCard (R$ '.number_format($goalsReserved, 2, ',', '.').') antes de encerrar sua conta.',
             ])->errorBag('userDeletion');
         }
 

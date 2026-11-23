@@ -1,7 +1,9 @@
-@props(['product', 'wishlistIds' => [], 'eager' => false])
+@props(['product', 'wishlistIds' => [], 'compareIds' => null, 'eager' => false])
 
 @php
     $isWishlisted = in_array($product->id, $wishlistIds ?? [], true);
+    $resolvedCompareIds = is_array($compareIds) ? $compareIds : array_map('intval', session('compare_product_ids', []));
+    $isCompared = in_array($product->id, $resolvedCompareIds, true);
     $maxCb = (float) config('digitalcard.max_cashback_percent', 15.0);
     $effectiveCbPercent = min((float) $product->cashback_percent, $maxCb);
     $cashbackAmount = round((float) $product->price * ($effectiveCbPercent / 100), 2);
@@ -9,7 +11,7 @@
     $rating = (float) $product->rating;
 @endphp
 
-<article class="scroll-reveal-card bg-surface rounded-xl border border-line hover:border-slate-400 hover:-translate-y-1.5 hover:shadow-float transition-all duration-300 ease-out flex flex-col overflow-hidden group">
+<article class="bg-surface rounded-xl border border-line hover:border-slate-400 hover:-translate-y-1 hover:shadow-float transition-all duration-300 ease-out flex flex-col overflow-hidden group">
     <div class="relative border-b border-line bg-surface overflow-hidden">
         <a href="{{ route('catalog.product', $product->slug) }}" class="block overflow-hidden">
             <x-product-image :product="$product" size="card" :priority="$eager" />
@@ -21,14 +23,28 @@
             </span>
         @endif
 
-        <form action="{{ route('wishlist.toggle', $product) }}" method="POST" class="absolute top-2.5 right-2.5">
-            @csrf
-            <button type="submit"
-                    aria-label="{{ $isWishlisted ? 'Remover '.$product->name.' dos favoritos' : 'Adicionar '.$product->name.' aos favoritos' }}"
-                    class="h-8 w-8 rounded-full bg-surface border border-line hover:border-ink hover:scale-110 active:scale-95 flex items-center justify-center transition-all duration-200 shadow-sm {{ $isWishlisted ? 'text-danger-600 border-danger-200 bg-danger-50' : 'text-slate-600 hover:text-ink' }}">
-                <x-icon name="heart" class="size-4" />
-            </button>
-        </form>
+        <div class="absolute top-2.5 right-2.5 flex flex-col gap-1.5">
+            <form action="{{ route('wishlist.toggle', $product) }}" method="POST">
+                @csrf
+                <button type="submit"
+                        title="{{ $isWishlisted ? 'Remover dos favoritos' : 'Adicionar aos favoritos' }}"
+                        aria-label="{{ $isWishlisted ? 'Remover '.$product->name.' dos favoritos' : 'Adicionar '.$product->name.' aos favoritos' }}"
+                        class="h-8 w-8 rounded-full bg-surface border border-line hover:border-ink hover:scale-110 active:scale-95 flex items-center justify-center transition-all duration-200 shadow-sm {{ $isWishlisted ? 'text-danger-600 border-danger-200 bg-danger-50' : 'text-slate-600 hover:text-ink' }}">
+                    <x-icon name="heart" class="size-4" />
+                </button>
+            </form>
+
+            <form action="{{ route('compare.toggle', $product) }}" method="POST">
+                @csrf
+                <button type="submit"
+                        title="{{ $isCompared ? 'Remover do comparador' : 'Comparar produto' }}"
+                        aria-label="{{ $isCompared ? 'Remover '.$product->name.' do comparador' : 'Adicionar '.$product->name.' ao comparador' }}"
+                        aria-pressed="{{ $isCompared ? 'true' : 'false' }}"
+                        class="h-8 w-8 rounded-full border hover:scale-110 active:scale-95 flex items-center justify-center transition-all duration-200 shadow-sm {{ $isCompared ? 'bg-ink text-paper border-ink' : 'bg-surface border-line text-slate-600 hover:text-ink hover:border-ink' }}">
+                    <x-icon name="scale" class="size-4" />
+                </button>
+            </form>
+        </div>
     </div>
 
     <div class="p-3.5 sm:p-4 flex-1 flex flex-col justify-between gap-2.5">

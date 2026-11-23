@@ -7,6 +7,7 @@ use App\Models\Coupon;
 use App\Models\Product;
 use App\Models\Wishlist;
 use App\Services\CartPricing;
+use App\Services\LoyaltyTierService;
 use App\Services\ShippingCalculator;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -16,30 +17,6 @@ use Illuminate\View\View;
 
 class CartController extends Controller
 {
-    public const COUPONS = [
-        'DIGITAL10' => [
-            'code' => 'DIGITAL10',
-            'type' => 'percent',
-            'value' => 10.0,
-            'min_total' => 0.0,
-            'label' => '10% OFF no DigitalCard',
-        ],
-        'BEMVINDO50' => [
-            'code' => 'BEMVINDO50',
-            'type' => 'fixed',
-            'value' => 50.0,
-            'min_total' => 500.0,
-            'label' => 'R$ 50,00 OFF em compras acima de R$ 500',
-        ],
-        'CASHBACKTURBO' => [
-            'code' => 'CASHBACKTURBO',
-            'type' => 'percent',
-            'value' => 5.0,
-            'min_total' => 0.0,
-            'label' => '5% OFF Imediato + Cashback Proporcional',
-        ],
-    ];
-
     public function index(Request $request, CartPricing $pricing, ShippingCalculator $shippingCalculator): View
     {
         if ($request->user()) {
@@ -75,8 +52,9 @@ class CartController extends Controller
             ?? Coupon::where('is_active', true)->orderBy('code')->value('code')
             ?? 'DIGITAL10';
 
+        $loyaltySummary = app(LoyaltyTierService::class)->summaryFor($request->user());
         $shippingQuote = $cep && $summary['subtotal_cents'] > 0
-            ? $shippingCalculator->calculate($cep, max(0, $summary['subtotal_cents'] - $summary['discount_cents']))
+            ? $shippingCalculator->calculate($cep, max(0, $summary['subtotal_cents'] - $summary['discount_cents']), $loyaltySummary['free_shipping_min_cents'])
             : null;
 
         return view('cart.index', [
@@ -92,6 +70,7 @@ class CartController extends Controller
             'total' => $summary['total'],
             'cashbackTotal' => $summary['cashbackTotal'],
             'priceWarnings' => $summary['price_warnings'],
+            'loyaltySummary' => $loyaltySummary,
             'checkoutToken' => $checkoutToken,
         ]);
     }
