@@ -6,8 +6,8 @@ use App\Enums\UserRole;
 use Database\Factories\UserFactory;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -18,11 +18,12 @@ class User extends Authenticatable implements MustVerifyEmail
     use HasFactory, Notifiable, SoftDeletes;
 
     /**
-     * is_admin removido de $fillable para impedir escalação de privilégio via Mass Assignment.
+     * is_admin e role permanecem fora de $fillable para evitar escalação de privilégio via Mass Assignment.
      */
     protected $fillable = [
         'name',
         'email',
+        'phone',
         'password',
     ];
 
@@ -40,22 +41,58 @@ class User extends Authenticatable implements MustVerifyEmail
         ];
     }
 
-    protected static function booted(): void
+    public function companies(): BelongsToMany
     {
-        static::created(function (User $user) {
-            $user->virtualCard()->create([
-                'card_number' => VirtualCard::generateUniqueCardNumber(),
-                'cvv' => VirtualCard::generateCvv(),
-                'expiration_date' => VirtualCard::DEFAULT_EXPIRATION_DATE,
-                'balance' => 0.00,
-                'cashback_earned' => 0.00,
-            ]);
-        });
+        return $this->belongsToMany(Company::class, 'company_users')
+            ->withPivot(['company_role', 'spending_limit', 'department', 'is_active'])
+            ->withTimestamps();
     }
 
-    public function virtualCard(): HasOne
+    public function companyMemberships(): HasMany
     {
-        return $this->hasOne(VirtualCard::class);
+        return $this->hasMany(CompanyUser::class);
+    }
+
+    public function primaryCompany(): ?Company
+    {
+        $membership = $this->companyMemberships()
+            ->with('company.wallet')
+            ->where('is_active', true)
+            ->orderBy('id')
+            ->first();
+
+        return $membership?->company;
+    }
+
+    public function companyMembership(?Company $company = null): ?CompanyUser
+    {
+        $query = $this->companyMemberships()->where('is_active', true);
+
+        if ($company !== null) {
+            $query->where('company_id', $company->id);
+        }
+
+        return $query->orderBy('id')->first();
+    }
+
+    public function belongsToCompany(int $companyId): bool
+    {
+        return $this->companyMemberships()
+            ->where('company_id', $companyId)
+            ->where('is_active', true)
+            ->exists();
+    }
+
+    public function isCompanyManager(?Company $company = null): bool
+    {
+        $membership = $this->companyMembership($company);
+
+        return $membership !== null && $membership->isManager();
+    }
+
+    public function activeCreditWallet(): ?CreditWallet
+    {
+        return $this->primaryCompany()?->wallet;
     }
 
     public function orders(): HasMany
@@ -88,35 +125,20 @@ class User extends Authenticatable implements MustVerifyEmail
         return $this->hasMany(PriceAlert::class);
     }
 
-    public function sentGiftCards(): HasMany
-    {
-        return $this->hasMany(GiftCard::class, 'purchaser_user_id');
-    }
-
-    public function redeemedGiftCards(): HasMany
-    {
-        return $this->hasMany(GiftCard::class, 'redeemer_user_id');
-    }
-
     public function productQuestions(): HasMany
     {
         return $this->hasMany(ProductQuestion::class);
-    }
-
-    public function savingsGoals(): HasMany
-    {
-        return $this->hasMany(SavingsGoal::class);
     }
 
     public function roleEnum(): UserRole
     {
         $role = UserRole::tryFrom((string) ($this->role ?? ''));
 
-        if ($this->is_admin && ($role === null || $role === UserRole::Customer)) {
+        if ($this->is_admin && ($role === null || ! $role->isBackoffice())) {
             return UserRole::Admin;
         }
 
-        return $role ?? UserRole::Customer;
+        return $role ?? UserRole::CompanyRequester;
     }
 
     public function hasAdminAccess(): bool
@@ -124,7 +146,22 @@ class User extends Authenticatable implements MustVerifyEmail
         return (bool) $this->is_admin || $this->roleEnum()->isBackoffice();
     }
 
-    public function canApproveRecharges(): bool
+    public function canManageCompanies(): bool
+    {
+        return (bool) $this->is_admin || in_array($this->roleEnum(), [UserRole::Admin, UserRole::Commercial], true);
+    }
+
+    public function canManagePurchasing(): bool
+    {
+        return (bool) $this->is_admin || in_array($this->roleEnum(), [UserRole::Admin, UserRole::Purchasing], true);
+    }
+
+    public function canManageCatalog(): bool
+    {
+        return (bool) $this->is_admin || in_array($this->roleEnum(), [UserRole::Admin, UserRole::Purchasing, UserRole::Commercial], true);
+    }
+
+    public function canManageFinance(): bool
     {
         return (bool) $this->is_admin || in_array($this->roleEnum(), [UserRole::Admin, UserRole::Finance], true);
     }
@@ -134,8 +171,8 @@ class User extends Authenticatable implements MustVerifyEmail
         return (bool) $this->is_admin || in_array($this->roleEnum(), [UserRole::Admin, UserRole::Logistics], true);
     }
 
-    public function canManageCatalog(): bool
+    public function canManageLogistics(): bool
     {
-        return (bool) $this->is_admin || in_array($this->roleEnum(), [UserRole::Admin, UserRole::Catalog], true);
+        return $this->canManageOrders();
     }
 }

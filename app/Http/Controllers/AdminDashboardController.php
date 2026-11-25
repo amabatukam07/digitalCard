@@ -2,22 +2,24 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\OrderStatus;
 use App\Enums\UserRole;
 use App\Models\AuditLog;
-use App\Models\CardTransaction;
 use App\Models\Category;
+use App\Models\Company;
 use App\Models\Coupon;
-use App\Models\GiftCard;
+use App\Models\CreditWallet;
 use App\Models\Order;
 use App\Models\OrderItem;
-use App\Models\PriceAlert;
+use App\Models\Payment;
 use App\Models\Product;
+use App\Models\ProductImage;
+use App\Models\ProductPrice;
 use App\Models\ProductQuestion;
-use App\Models\Recharge;
-use App\Models\SavingsGoal;
 use App\Models\User;
-use App\Models\VirtualCard;
 use App\Services\PriceAlertService;
+use App\Services\PricingCalculator;
+use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -29,48 +31,74 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class AdminDashboardController extends Controller
 {
-    public function index(Request $request): View
+    public function index(Request $request, PricingCalculator $calculator): View
     {
-        $totalBalance = (float) VirtualCard::sum('balance');
-        $totalCashback = (float) VirtualCard::sum('cashback_earned');
-        $pendingRechargesCount = Recharge::where('status', Recharge::STATUS_PENDING)->count();
-        $pendingRechargesAmount = (float) Recharge::where('status', Recharge::STATUS_PENDING)->sum('amount');
-        $totalSales = (float) Order::whereNotIn('status', [Order::STATUS_CANCELLED, Order::STATUS_RETURNED])->sum('total_amount');
-        $pendingOrdersCount = Order::whereIn('status', [Order::STATUS_REQUESTED, Order::STATUS_SEPARATING, Order::STATUS_SHIPPED])->count();
+        abort_unless((bool) $request->user()?->hasAdminAccess(), 403);
+
+        $activeCompaniesCount = Company::where('status', Company::STATUS_ACTIVE)->count();
+        $openCreditBalance = (float) CreditWallet::sum('balance');
+        $creditsSold = (float) CreditWallet::sum('total_acquired');
+        $creditsUsed = (float) CreditWallet::sum('total_spent');
+
+        $pendingPaymentsCount = Payment::where('status', Payment::STATUS_PENDING)->count();
+        $pendingPaymentsAmount = (float) Payment::where('status', Payment::STATUS_PENDING)->sum('amount');
+
+        $validOrdersBase = Order::whereNotIn('status', [
+            Order::STATUS_CANCELLED,
+            Order::STATUS_RETURNED,
+            Order::STATUS_AWAITING_APPROVAL,
+        ]);
+
+        $totalSales = (float) (clone $validOrdersBase)->sum('total_amount');
+        $validOrdersCount = (clone $validOrdersBase)->count();
+        $ticketAverage = $validOrdersCount > 0 ? round($totalSales / $validOrdersCount, 2) : 0.0;
+        $estimatedDasTotal = (float) (clone $validOrdersBase)->sum('estimated_das_amount');
+        $estimatedMarginTotal = (float) (clone $validOrdersBase)->sum('estimated_margin_amount');
+
+        $pendingOrdersCount = Order::whereIn('status', [
+            Order::STATUS_REQUESTED,
+            Order::STATUS_SEPARATING,
+            Order::STATUS_SHIPPED,
+        ])->count();
         $deliveredOrdersCount = Order::where('status', Order::STATUS_DELIVERED)->count();
 
-        $pendingRecharges = Recharge::with('virtualCard.user')
-            ->where('status', Recharge::STATUS_PENDING)
+        $pendingPayments = Payment::with(['company', 'contract.plan', 'requestedBy'])
+            ->where('status', Payment::STATUS_PENDING)
             ->latest()
-            ->limit(10)
+            ->limit(8)
             ->get();
 
-        $pendingOrders = Order::with('user', 'items.product')
+        $pendingOrders = Order::with(['company', 'user', 'items.product'])
             ->whereIn('status', [Order::STATUS_REQUESTED, Order::STATUS_SEPARATING, Order::STATUS_SHIPPED])
             ->latest()
-            ->limit(10)
+            ->limit(8)
             ->get();
 
-        // Busca e paginação de produtos no painel administrativo
         $productQuery = Product::with('category')->latest();
         if ($productSearch = trim((string) $request->input('product_q'))) {
-            $escaped = addcslashes($productSearch, '%_\\');
-            $productQuery->whereRaw("name LIKE ? ESCAPE '\\'", ["%{$escaped}%"]);
+            $like = '%'.$productSearch.'%';
+            $productQuery->where(function ($q) use ($like): void {
+                $q->where('name', 'like', $like)
+                    ->orWhere('sku', 'like', $like);
+            });
+        }
+        if ($request->boolean('low_stock')) {
+            $productQuery->whereColumn('stock', '<=', 'min_stock');
         }
 
         $products = $productQuery->paginate(15)->withQueryString();
         $categories = Category::withCount(['products', 'children'])->orderBy('name')->get();
         $coupons = Coupon::orderByDesc('created_at')->get();
-        $users = User::with('virtualCard')->latest()->limit(20)->get();
-        $auditLogs = AuditLog::with('user')->latest('created_at')->limit(20)->get();
+        $users = User::with('companies')->latest()->limit(25)->get();
+        $auditLogs = AuditLog::with(['user', 'company'])->latest('created_at')->limit(20)->get();
 
         $lowStockProducts = Product::query()
             ->with('category')
             ->where('is_active', true)
-            ->where('stock', '<=', 5)
+            ->whereColumn('stock', '<=', 'min_stock')
             ->orderBy('stock')
             ->orderBy('name')
-            ->limit(8)
+            ->limit(10)
             ->get();
 
         $pendingQuestions = ProductQuestion::query()
@@ -80,21 +108,12 @@ class AdminDashboardController extends Controller
             ->limit(10)
             ->get();
 
-        $fintechMetrics = [
-            'goals_total' => (float) SavingsGoal::sum('current_amount'),
-            'goals_count' => SavingsGoal::count(),
-            'active_gift_cards_total' => (float) GiftCard::where('status', GiftCard::STATUS_ACTIVE)->sum('remaining_amount'),
-            'active_gift_cards_count' => GiftCard::where('status', GiftCard::STATUS_ACTIVE)->count(),
-            'p2p_volume_total' => (float) abs((float) CardTransaction::where('type', CardTransaction::TYPE_TRANSFER_OUT)->sum('amount')),
-            'active_price_alerts_count' => PriceAlert::whereNull('notified_at')->count(),
-        ];
-
         $topProducts = OrderItem::query()
-            ->selectRaw('product_id, MAX(product_name) as product_name, SUM(quantity) as total_units, SUM(quantity * unit_price) as total_revenue')
-            ->whereHas('order', fn ($q) => $q->whereNotIn('status', [Order::STATUS_CANCELLED, Order::STATUS_RETURNED]))
+            ->selectRaw('product_id, MAX(product_name) as product_name, SUM(quantity) as total_units, SUM(quantity * unit_price) as total_revenue, SUM(quantity * unit_cost_snapshot) as total_cost')
+            ->whereHas('order', fn ($q) => $q->whereNotIn('status', [Order::STATUS_CANCELLED, Order::STATUS_RETURNED, Order::STATUS_AWAITING_APPROVAL]))
             ->groupBy('product_id')
             ->orderByDesc('total_units')
-            ->limit(5)
+            ->limit(6)
             ->get();
 
         $deptRevenueRaw = OrderItem::query()
@@ -102,7 +121,7 @@ class AdminDashboardController extends Controller
             ->join('products', 'products.id', '=', 'order_items.product_id')
             ->join('categories', 'categories.id', '=', 'products.category_id')
             ->leftJoin('categories as parent_cats', 'parent_cats.id', '=', 'categories.parent_id')
-            ->whereNotIn('orders.status', [Order::STATUS_CANCELLED, Order::STATUS_RETURNED])
+            ->whereNotIn('orders.status', [Order::STATUS_CANCELLED, Order::STATUS_RETURNED, Order::STATUS_AWAITING_APPROVAL])
             ->selectRaw('COALESCE(parent_cats.name, categories.name) as department_name, SUM(order_items.quantity * order_items.unit_price) as revenue, SUM(order_items.quantity) as units')
             ->groupByRaw('COALESCE(parent_cats.name, categories.name)')
             ->orderByDesc('revenue')
@@ -117,15 +136,94 @@ class AdminDashboardController extends Controller
             'percent' => (int) min(100, max(6, round(((float) $row->revenue / $maxDeptRevenue) * 100))),
         ]);
 
+        // Série mensal (últimos 6 meses) em PHP para compatibilidade MySQL e SQLite
+        $sixMonthsStart = now()->subMonths(5)->startOfMonth();
+        $monthlySeries = [];
+        for ($i = 5; $i >= 0; $i--) {
+            $mKey = now()->subMonths($i)->format('Y-m');
+            $monthlySeries[$mKey] = [
+                'label' => ucfirst(Carbon::createFromFormat('Y-m', $mKey)->locale('pt_BR')->translatedFormat('M/y')),
+                'sales' => 0.0,
+                'credits' => 0.0,
+            ];
+        }
+
+        $recentOrdersForSeries = (clone $validOrdersBase)
+            ->where('created_at', '>=', $sixMonthsStart)
+            ->get(['total_amount', 'created_at']);
+
+        foreach ($recentOrdersForSeries as $orderRow) {
+            $k = $orderRow->created_at?->format('Y-m');
+            if ($k && isset($monthlySeries[$k])) {
+                $monthlySeries[$k]['sales'] = round($monthlySeries[$k]['sales'] + (float) $orderRow->total_amount, 2);
+            }
+        }
+
+        $recentPaymentsForSeries = Payment::where('status', Payment::STATUS_APPROVED)
+            ->where('created_at', '>=', $sixMonthsStart)
+            ->get(['amount', 'approved_amount', 'created_at']);
+
+        foreach ($recentPaymentsForSeries as $payRow) {
+            $k = $payRow->created_at?->format('Y-m');
+            if ($k && isset($monthlySeries[$k])) {
+                $monthlySeries[$k]['credits'] = round($monthlySeries[$k]['credits'] + (float) ($payRow->approved_amount ?? $payRow->amount), 2);
+            }
+        }
+
+        $maxSeriesValue = max(1.0, (float) collect($monthlySeries)->flatMap(fn ($r) => [$r['sales'], $r['credits']])->max());
+        $monthlyChart = collect($monthlySeries)->map(fn (array $row): array => [
+            'label' => $row['label'],
+            'sales' => $row['sales'],
+            'credits' => $row['credits'],
+            'sales_pct' => $row['sales'] > 0 ? (int) min(100, max(6, round(($row['sales'] / $maxSeriesValue) * 100))) : 0,
+            'credits_pct' => $row['credits'] > 0 ? (int) min(100, max(6, round(($row['credits'] / $maxSeriesValue) * 100))) : 0,
+        ])->values();
+
+        $ordersByStatusRaw = Order::query()
+            ->selectRaw('status, COUNT(*) as total')
+            ->groupBy('status')
+            ->pluck('total', 'status')
+            ->all();
+
+        $ordersByStatus = collect(OrderStatus::cases())->map(fn (OrderStatus $case): array => [
+            'label' => $case->label(),
+            'count' => (int) ($ordersByStatusRaw[$case->value] ?? 0),
+        ]);
+
+        $simCredits = max(500.0, (float) $request->input('sim_credits', 1000.0));
+        $simMarkup = max(1.0, (float) $request->input('sim_markup', 35.0));
+        $simDas = max(0.0, min(30.0, (float) $request->input('sim_das', 4.0)));
+        $portfolioSimulation = $calculator->simulatePortfolio($simCredits, $simMarkup, $simDas);
+
+        $creditUtilizationRate = $creditsSold > 0 ? round(($creditsUsed / $creditsSold) * 100, 1) : 0.0;
+        $lowStockCompaniesCount = Company::where('status', Company::STATUS_ACTIVE)
+            ->whereHas('wallet', fn ($q) => $q->whereColumn('balance', '<=', 'companies.low_balance_threshold'))
+            ->count();
+
+        $requestedTab = (string) $request->input('tab', '');
+        $activeTab = match (true) {
+            in_array($requestedTab, ['visao', 'fila', 'catalogo', 'governanca'], true) => $requestedTab,
+            $request->filled('product_q') || $request->boolean('low_stock') || $request->filled('page') => 'catalogo',
+            $request->hasAny(['sim_credits', 'sim_markup', 'sim_das']) => 'governanca',
+            default => 'visao',
+        };
+
         return view('admin.dashboard', compact(
-            'totalBalance',
-            'totalCashback',
-            'pendingRechargesCount',
-            'pendingRechargesAmount',
+            'activeCompaniesCount',
+            'openCreditBalance',
+            'creditsSold',
+            'creditsUsed',
+            'creditUtilizationRate',
+            'lowStockCompaniesCount',
+            'pendingPaymentsCount',
+            'pendingPaymentsAmount',
             'totalSales',
+            'ticketAverage',
+            'estimatedDasTotal',
+            'estimatedMarginTotal',
             'pendingOrdersCount',
             'deliveredOrdersCount',
-            'pendingRecharges',
+            'pendingPayments',
             'pendingOrders',
             'products',
             'categories',
@@ -134,99 +232,159 @@ class AdminDashboardController extends Controller
             'auditLogs',
             'lowStockProducts',
             'pendingQuestions',
-            'fintechMetrics',
             'topProducts',
             'salesByDepartment',
+            'monthlyChart',
+            'ordersByStatus',
+            'portfolioSimulation',
+            'simCredits',
+            'simMarkup',
+            'simDas',
+            'activeTab',
         ));
     }
 
-    /**
-     * Cadastra produto sem fabricar compare_at_price falso, limitando cashback_percent e suportando upload de imagem.
-     */
-    public function storeProduct(Request $request): RedirectResponse
+    public function storeProduct(Request $request, PricingCalculator $calculator): RedirectResponse
     {
         abort_unless((bool) $request->user()?->canManageCatalog(), 403);
-        $maxCashback = (float) config('digitalcard.max_cashback_percent', 15.0);
 
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
+            'sku' => ['nullable', 'string', 'max:40', 'unique:products,sku'],
+            'brand' => ['nullable', 'string', 'max:100'],
+            'unit' => ['required', 'string', 'max:30'],
+            'presentation' => ['nullable', 'string', 'max:120'],
             'category_id' => ['required', 'exists:categories,id'],
             'description' => ['required', 'string', 'max:2000'],
-            'price' => ['required', 'numeric', 'min:0.01'],
+            'cost_price' => ['required', 'numeric', 'min:0'],
+            'inbound_freight' => ['nullable', 'numeric', 'min:0'],
+            'other_costs' => ['nullable', 'numeric', 'min:0'],
+            'markup_percent' => ['nullable', 'numeric', 'min:0', 'max:500'],
+            'das_rate' => ['nullable', 'numeric', 'min:0', 'max:40'],
+            'price' => ['nullable', 'numeric', 'min:0.01'],
             'compare_at_price' => ['nullable', 'numeric', 'min:0.01'],
-            'cashback_percent' => ['required', 'numeric', 'min:0', 'max:'.$maxCashback],
             'stock' => ['required', 'integer', 'min:0'],
+            'min_stock' => ['required', 'integer', 'min:0'],
             'image_path' => ['nullable', 'string', 'max:1000'],
             'image_file' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
+            'gallery_files' => ['nullable', 'array', 'max:8'],
+            'gallery_files.*' => ['image', 'mimes:jpg,jpeg,png,webp,svg', 'max:2048'],
         ]);
 
         $baseSlug = Str::slug($validated['name']);
         $slug = $baseSlug;
         $counter = 1;
-
         while (Product::where('slug', $slug)->exists()) {
             $slug = $baseSlug.'-'.$counter++;
         }
+
+        $sku = trim((string) ($validated['sku'] ?? '')) ?: ('NX-'.strtoupper(Str::random(6)));
+
+        $costPrice = round((float) $validated['cost_price'], 2);
+        $inboundFreight = round((float) ($validated['inbound_freight'] ?? 0.0), 2);
+        $otherCosts = round((float) ($validated['other_costs'] ?? 0.0), 2);
+        $markupPercent = round((float) ($validated['markup_percent'] ?? config('nexosupri.default_markup_percent', 35.0)), 2);
+        $dasRate = round((float) ($validated['das_rate'] ?? config('nexosupri.default_das_rate_percent', 4.0)), 2);
+
+        $totalUnitCost = $calculator->totalUnitCost($costPrice, $inboundFreight, $otherCosts);
+        $salePrice = ! empty($validated['price'])
+            ? round((float) $validated['price'], 2)
+            : $calculator->suggestedPrice($totalUnitCost, $markupPercent, $dasRate);
 
         $imagePath = $validated['image_path'] ?? null;
         if ($request->hasFile('image_file')) {
             $imagePath = $request->file('image_file')->store('products', 'public');
         }
 
-        // Somente grava compare_at_price quando realmente informado pelo administrador e maior que o preço
-        $compareAt = ! empty($validated['compare_at_price']) && (float) $validated['compare_at_price'] > (float) $validated['price']
+        $compareAt = ! empty($validated['compare_at_price']) && (float) $validated['compare_at_price'] > $salePrice
             ? (float) $validated['compare_at_price']
             : null;
 
         $product = Product::create([
             'category_id' => (int) $validated['category_id'],
+            'sku' => $sku,
+            'brand' => $validated['brand'] ?? 'NexoSupri',
+            'unit' => $validated['unit'],
+            'presentation' => $validated['presentation'] ?? null,
             'name' => $validated['name'],
             'slug' => $slug,
             'description' => $validated['description'],
-            'price' => (float) $validated['price'],
+            'cost_price' => $costPrice,
+            'inbound_freight' => $inboundFreight,
+            'other_costs' => $otherCosts,
+            'markup_percent' => $markupPercent,
+            'das_rate' => $dasRate,
+            'price' => $salePrice,
             'compare_at_price' => $compareAt,
-            'cashback_percent' => (float) $validated['cashback_percent'],
             'stock' => (int) $validated['stock'],
+            'min_stock' => (int) $validated['min_stock'],
             'image_path' => $imagePath,
             'is_active' => true,
         ]);
+
+        $this->attachGalleryUploads($request, $product, $imagePath);
+
+        ProductPrice::create([
+            'product_id' => $product->id,
+            'cost_price' => $costPrice,
+            'inbound_freight' => $inboundFreight,
+            'other_costs' => $otherCosts,
+            'markup_percent' => $markupPercent,
+            'das_rate' => $dasRate,
+            'sale_price' => $salePrice,
+            'changed_by' => $request->user()->id,
+            'reason' => 'Cadastro inicial do insumo',
+            'effective_at' => now(),
+        ]);
+
+        Cache::forget('catalog_category_counts');
+        Cache::forget('catalog_interleaved_ids');
 
         AuditLog::record(
             'product.created',
             $product,
             null,
-            ['name' => $product->name, 'price' => (float) $product->price, 'stock' => $product->stock],
+            ['sku' => $product->sku, 'name' => $product->name, 'price' => (float) $product->price, 'stock' => $product->stock],
             $request->user()->id
         );
 
-        return back()->with('success', "Produto \"{$validated['name']}\" cadastrado com sucesso no catálogo.");
+        return back()->with('success', "Insumo \"{$validated['name']}\" ({$sku}) cadastrado com sucesso.");
     }
 
-    /**
-     * Permite editar descrição, limpar compare_at_price e enviar upload de imagem.
-     */
-    public function updateProduct(Request $request, Product $product): RedirectResponse
+    public function updateProduct(Request $request, Product $product, PricingCalculator $calculator): RedirectResponse
     {
         abort_unless((bool) $request->user()?->canManageCatalog(), 403);
-        $maxCashback = (float) config('digitalcard.max_cashback_percent', 15.0);
 
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
+            'sku' => ['nullable', 'string', 'max:40', Rule::unique('products', 'sku')->ignore($product->id)],
+            'brand' => ['nullable', 'string', 'max:100'],
+            'unit' => ['nullable', 'string', 'max:30'],
+            'presentation' => ['nullable', 'string', 'max:120'],
             'category_id' => ['required', 'exists:categories,id'],
             'description' => ['nullable', 'string', 'max:2000'],
-            'price' => ['required', 'numeric', 'min:0.01'],
+            'cost_price' => ['required', 'numeric', 'min:0'],
+            'inbound_freight' => ['nullable', 'numeric', 'min:0'],
+            'other_costs' => ['nullable', 'numeric', 'min:0'],
+            'markup_percent' => ['nullable', 'numeric', 'min:0', 'max:500'],
+            'das_rate' => ['nullable', 'numeric', 'min:0', 'max:40'],
+            'price' => ['nullable', 'numeric', 'min:0.01'],
+            'recalculate_price' => ['nullable', 'boolean'],
             'compare_at_price' => ['nullable', 'numeric', 'min:0.01'],
             'clear_compare_at_price' => ['nullable', 'boolean'],
-            'cashback_percent' => ['required', 'numeric', 'min:0', 'max:'.$maxCashback],
             'stock' => ['required', 'integer', 'min:0'],
+            'min_stock' => ['nullable', 'integer', 'min:0'],
+            'price_reason' => ['nullable', 'string', 'max:255'],
             'image_path' => ['nullable', 'string', 'max:1000'],
             'image_file' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
+            'gallery_files' => ['nullable', 'array', 'max:8'],
+            'gallery_files.*' => ['image', 'mimes:jpg,jpeg,png,webp,svg', 'max:2048'],
         ]);
 
         $oldValues = [
             'name' => $product->name,
+            'cost_price' => (float) $product->cost_price,
             'price' => (float) $product->price,
-            'compare_at_price' => $product->compare_at_price ? (float) $product->compare_at_price : null,
             'stock' => (int) $product->stock,
         ];
 
@@ -235,30 +393,70 @@ class AdminDashboardController extends Controller
             $imagePath = $request->file('image_file')->store('products', 'public');
         }
 
+        $costPrice = round((float) $validated['cost_price'], 2);
+        $inboundFreight = round((float) ($validated['inbound_freight'] ?? $product->inbound_freight), 2);
+        $otherCosts = round((float) ($validated['other_costs'] ?? $product->other_costs), 2);
+        $markupPercent = round((float) ($validated['markup_percent'] ?? $product->markup_percent), 2);
+        $dasRate = round((float) ($validated['das_rate'] ?? $product->das_rate), 2);
+
+        $totalUnitCost = $calculator->totalUnitCost($costPrice, $inboundFreight, $otherCosts);
+        $salePrice = $request->boolean('recalculate_price') || empty($validated['price'])
+            ? $calculator->suggestedPrice($totalUnitCost, $markupPercent, $dasRate)
+            : round((float) $validated['price'], 2);
+
         if ($request->boolean('clear_compare_at_price') || ($request->has('compare_at_price') && empty($validated['compare_at_price']))) {
             $compareAt = null;
-        } elseif (! empty($validated['compare_at_price']) && (float) $validated['compare_at_price'] > (float) $validated['price']) {
+        } elseif (! empty($validated['compare_at_price']) && (float) $validated['compare_at_price'] > $salePrice) {
             $compareAt = (float) $validated['compare_at_price'];
         } elseif (! empty($validated['compare_at_price'])) {
             $compareAt = null;
         } else {
-            $compareAt = $product->compare_at_price && (float) $product->compare_at_price > (float) $validated['price']
+            $compareAt = $product->compare_at_price && (float) $product->compare_at_price > $salePrice
                 ? $product->compare_at_price
                 : null;
         }
 
         $product->update([
             'name' => $validated['name'],
+            'sku' => ($validated['sku'] ?? null) ?: $product->sku,
+            'brand' => ($validated['brand'] ?? null) ?: $product->brand,
+            'unit' => ($validated['unit'] ?? null) ?: $product->unit,
+            'presentation' => $validated['presentation'] ?? $product->presentation,
             'category_id' => (int) $validated['category_id'],
             'description' => array_key_exists('description', $validated) && $validated['description'] !== null && $validated['description'] !== ''
                 ? $validated['description']
                 : $product->description,
-            'price' => (float) $validated['price'],
+            'cost_price' => $costPrice,
+            'inbound_freight' => $inboundFreight,
+            'other_costs' => $otherCosts,
+            'markup_percent' => $markupPercent,
+            'das_rate' => $dasRate,
+            'price' => $salePrice,
             'compare_at_price' => $compareAt,
-            'cashback_percent' => (float) $validated['cashback_percent'],
             'stock' => (int) $validated['stock'],
+            'min_stock' => (int) ($validated['min_stock'] ?? $product->min_stock),
             'image_path' => $imagePath,
         ]);
+
+        $this->attachGalleryUploads($request, $product, $imagePath);
+
+        if ((float) $oldValues['price'] !== (float) $salePrice || (float) $oldValues['cost_price'] !== (float) $costPrice) {
+            ProductPrice::create([
+                'product_id' => $product->id,
+                'cost_price' => $costPrice,
+                'inbound_freight' => $inboundFreight,
+                'other_costs' => $otherCosts,
+                'markup_percent' => $markupPercent,
+                'das_rate' => $dasRate,
+                'sale_price' => $salePrice,
+                'changed_by' => $request->user()->id,
+                'reason' => $validated['price_reason'] ?? 'Atualização administrativa de preço/custo',
+                'effective_at' => now(),
+            ]);
+        }
+
+        Cache::forget('catalog_category_counts');
+        Cache::forget('catalog_interleaved_ids');
 
         AuditLog::record(
             'product.updated',
@@ -266,8 +464,8 @@ class AdminDashboardController extends Controller
             $oldValues,
             [
                 'name' => $product->name,
+                'cost_price' => (float) $product->cost_price,
                 'price' => (float) $product->price,
-                'compare_at_price' => $product->compare_at_price ? (float) $product->compare_at_price : null,
                 'stock' => (int) $product->stock,
             ],
             $request->user()->id
@@ -275,7 +473,7 @@ class AdminDashboardController extends Controller
 
         app(PriceAlertService::class)->dispatchTriggeredAlerts($product->fresh());
 
-        return back()->with('success', "Produto \"{$product->name}\" atualizado com sucesso.");
+        return back()->with('success', "Insumo \"{$product->name}\" atualizado com sucesso.");
     }
 
     public function storeCategory(Request $request): RedirectResponse
@@ -284,7 +482,7 @@ class AdminDashboardController extends Controller
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:120'],
             'parent_id' => ['nullable', 'exists:categories,id'],
-            'icon' => ['nullable', 'string', 'max:20'],
+            'icon' => ['nullable', 'string', 'max:30'],
         ]);
 
         $baseSlug = Str::slug($validated['name']);
@@ -303,6 +501,8 @@ class AdminDashboardController extends Controller
         ]);
 
         Cache::forget('nav_categories_tree');
+        Cache::forget('catalog_category_counts');
+        Cache::forget('catalog_interleaved_ids');
 
         AuditLog::record('category.created', $category, null, ['name' => $category->name], $request->user()->id);
 
@@ -314,7 +514,7 @@ class AdminDashboardController extends Controller
         abort_unless((bool) $request->user()?->canManageCatalog(), 403);
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:120'],
-            'icon' => ['nullable', 'string', 'max:20'],
+            'icon' => ['nullable', 'string', 'max:30'],
         ]);
 
         $oldName = $category->name;
@@ -324,21 +524,20 @@ class AdminDashboardController extends Controller
         ]);
 
         Cache::forget('nav_categories_tree');
+        Cache::forget('catalog_category_counts');
+        Cache::forget('catalog_interleaved_ids');
 
         AuditLog::record('category.updated', $category, ['name' => $oldName], ['name' => $category->name], $request->user()->id);
 
         return back()->with('success', "Categoria \"{$category->name}\" atualizada com sucesso.");
     }
 
-    /**
-     * Exclui categoria com segurança (bloqueia se possuir produtos ou subcategorias).
-     */
     public function destroyCategory(Request $request, Category $category): RedirectResponse
     {
         abort_unless((bool) $request->user()?->canManageCatalog(), 403);
         if ($category->products()->exists() || $category->children()->exists()) {
             throw ValidationException::withMessages([
-                'category' => 'Não é possível excluir uma categoria que possui produtos ou subcategorias vinculadas.',
+                'category' => 'Não é possível excluir uma categoria com produtos ou subcategorias vinculadas.',
             ]);
         }
 
@@ -347,8 +546,10 @@ class AdminDashboardController extends Controller
         $category->delete();
 
         Cache::forget('nav_categories_tree');
+        Cache::forget('catalog_category_counts');
+        Cache::forget('catalog_interleaved_ids');
 
-        return back()->with('success', "Categoria \"{$name}\" excluída com sucesso.");
+        return back()->with('success', "Categoria \"{$name}\" excluída.");
     }
 
     public function toggleProduct(Request $request, Product $product): RedirectResponse
@@ -356,6 +557,8 @@ class AdminDashboardController extends Controller
         abort_unless((bool) $request->user()?->canManageCatalog(), 403);
         $oldActive = (bool) $product->is_active;
         $product->update(['is_active' => ! $oldActive]);
+        Cache::forget('catalog_category_counts');
+        Cache::forget('catalog_interleaved_ids');
 
         AuditLog::record(
             'product.toggled',
@@ -366,13 +569,10 @@ class AdminDashboardController extends Controller
         );
 
         return back()->with('success', $product->is_active
-            ? "Produto \"{$product->name}\" reativado no catálogo."
-            : "Produto \"{$product->name}\" desativado do catálogo.");
+            ? "Insumo \"{$product->name}\" reativado no catálogo."
+            : "Insumo \"{$product->name}\" desativado do catálogo.");
     }
 
-    /**
-     * CRUD de Cupons Promocionais no painel administrativo.
-     */
     public function storeCoupon(Request $request): RedirectResponse
     {
         abort_unless((bool) $request->user()?->canManageCatalog(), 403);
@@ -412,7 +612,7 @@ class AdminDashboardController extends Controller
             $request->user()->id
         );
 
-        return back()->with('success', "Cupom \"{$coupon->code}\" salvo com sucesso.");
+        return back()->with('success', "Condição comercial/cupom \"{$coupon->code}\" salvo com sucesso.");
     }
 
     public function toggleCoupon(Request $request, Coupon $coupon): RedirectResponse
@@ -434,35 +634,51 @@ class AdminDashboardController extends Controller
             : "Cupom {$coupon->code} desativado.");
     }
 
-    /**
-     * Exporta relatório de vendas por período em formato CSV com BOM UTF-8 e prevenção a Formula Injection.
-     */
     public function exportSalesCsv(Request $request): StreamedResponse
     {
-        $query = Order::with('user')
+        abort_unless((bool) $request->user()?->hasAdminAccess(), 403);
+
+        $query = Order::with(['company', 'user'])
             ->when($request->filled('from'), fn ($q) => $q->whereDate('created_at', '>=', $request->input('from')))
             ->when($request->filled('to'), fn ($q) => $q->whereDate('created_at', '<=', $request->input('to')))
             ->orderByDesc('created_at');
 
-        $filename = 'relatorio-vendas-digitalcard-'.now()->format('Ymd-His').'.csv';
+        $filename = 'relatorio-vendas-nexosupri-'.now()->format('Ymd-His').'.csv';
 
         return response()->streamDownload(function () use ($query): void {
             $handle = fopen('php://output', 'w');
             fwrite($handle, "\xEF\xBB\xBF");
-            fputcsv($handle, ['Pedido', 'Data', 'Cliente', 'Email', 'Status', 'Subtotal (R$)', 'Desconto (R$)', 'Frete (R$)', 'Total Pago (R$)', 'Cashback (R$)'], ';');
+            fputcsv($handle, [
+                'Pedido',
+                'Data',
+                'Empresa',
+                'CNPJ',
+                'Solicitante',
+                'Status',
+                'Subtotal (R$)',
+                'Desconto (R$)',
+                'Frete (R$)',
+                'Total (R$ / Créditos)',
+                'Custo Estimado (R$)',
+                'DAS Estimado (R$)',
+                'Resultado Estimado (R$)',
+            ], ';');
 
             foreach ($query->cursor() as $order) {
                 fputcsv($handle, [
                     '#PED-'.str_pad((string) $order->id, 6, '0', STR_PAD_LEFT),
                     $order->created_at?->format('d/m/Y H:i'),
+                    $this->sanitizeCsvCell($order->company?->trade_name ?? 'N/A'),
+                    $this->sanitizeCsvCell($order->company?->cnpj ?? ''),
                     $this->sanitizeCsvCell($order->user?->name ?? 'N/A'),
-                    $this->sanitizeCsvCell($order->user?->email ?? 'N/A'),
                     $this->sanitizeCsvCell($order->status),
                     number_format((float) $order->subtotal_amount, 2, ',', ''),
                     number_format((float) $order->discount_amount, 2, ',', ''),
                     number_format((float) $order->shipping_cost, 2, ',', ''),
                     number_format((float) $order->total_amount, 2, ',', ''),
-                    number_format((float) $order->cashback_total, 2, ',', ''),
+                    number_format((float) $order->total_cost_snapshot, 2, ',', ''),
+                    number_format((float) $order->estimated_das_amount, 2, ',', ''),
+                    number_format((float) $order->estimated_margin_amount, 2, ',', ''),
                 ], ';');
             }
 
@@ -472,14 +688,35 @@ class AdminDashboardController extends Controller
         ]);
     }
 
-    private function sanitizeCsvCell(?string $value): string
+    public function exportCompanyCreditsCsv(Request $request): StreamedResponse
     {
-        $text = (string) ($value ?? '');
-        if ($text !== '' && in_array($text[0], ['=', '+', '-', '@', "\t", "\r"], true)) {
-            return "'".$text;
-        }
+        abort_unless((bool) $request->user()?->hasAdminAccess(), 403);
 
-        return $text;
+        $query = Company::with('wallet')->orderBy('trade_name');
+        $filename = 'saldos-creditos-empresas-nexosupri-'.now()->format('Ymd-His').'.csv';
+
+        return response()->streamDownload(function () use ($query): void {
+            $handle = fopen('php://output', 'w');
+            fwrite($handle, "\xEF\xBB\xBF");
+            fputcsv($handle, ['Empresa', 'Razão Social', 'CNPJ', 'Status', 'Créditos Adquiridos', 'Créditos Utilizados', 'Saldo em Aberto'], ';');
+
+            foreach ($query->cursor() as $company) {
+                $wallet = $company->wallet;
+                fputcsv($handle, [
+                    $this->sanitizeCsvCell($company->trade_name),
+                    $this->sanitizeCsvCell($company->legal_name),
+                    $this->sanitizeCsvCell($company->cnpj),
+                    $this->sanitizeCsvCell($company->status),
+                    number_format((float) ($wallet?->total_acquired ?? 0), 2, ',', ''),
+                    number_format((float) ($wallet?->total_spent ?? 0), 2, ',', ''),
+                    number_format((float) ($wallet?->balance ?? 0), 2, ',', ''),
+                ], ';');
+            }
+
+            fclose($handle);
+        }, $filename, [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+        ]);
     }
 
     public function updateUserRole(Request $request, User $user): RedirectResponse
@@ -509,5 +746,49 @@ class AdminDashboardController extends Controller
         );
 
         return back()->with('success', "Papel de {$user->name} atualizado para {$newRole->label()}.");
+    }
+
+    private function attachGalleryUploads(Request $request, Product $product, ?string $primaryImagePath): void
+    {
+        $uploadedPaths = [];
+        if ($primaryImagePath && $product->images()->count() === 0) {
+            $uploadedPaths[] = $primaryImagePath;
+        }
+
+        foreach ($request->file('gallery_files', []) as $file) {
+            if ($file && $file->isValid()) {
+                $uploadedPaths[] = $file->store('products', 'public');
+            }
+        }
+
+        if ($uploadedPaths === []) {
+            return;
+        }
+
+        if (! $product->image_path) {
+            $product->update(['image_path' => $uploadedPaths[0]]);
+        }
+
+        $nextOrder = (int) $product->images()->max('sort_order') + 1;
+        foreach ($uploadedPaths as $path) {
+            ProductImage::create([
+                'product_id' => $product->id,
+                'image_path' => $path,
+                'alt' => $product->name,
+                'caption' => 'Imagem '.$nextOrder,
+                'sort_order' => $nextOrder,
+            ]);
+            $nextOrder++;
+        }
+    }
+
+    private function sanitizeCsvCell(?string $value): string
+    {
+        $text = (string) ($value ?? '');
+        if ($text !== '' && in_array($text[0], ['=', '+', '-', '@', "\t", "\r"], true)) {
+            return "'".$text;
+        }
+
+        return $text;
     }
 }

@@ -20,7 +20,7 @@ class CartPricing
     }
 
     /**
-     * Calcula o resumo completo do carrinho/checkout usando exclusivamente centavos inteiros (S10).
+     * Calcula o resumo do carrinho B2B em centavos inteiros (1 crédito = R$ 1,00, sem bônus ou cashback).
      *
      * @param  array<int|string, array{product_id?: int, quantity: int, price_snapshot?: float|null}>  $rawCart
      * @param  Collection<int, Product>|null  $preloadedProducts
@@ -30,6 +30,9 @@ class CartPricing
      *     quantity: int,
      *     unit_price_cents: int,
      *     unit_price: float,
+     *     unit_cost_cents: int,
+     *     unit_cost: float,
+     *     das_rate: float,
      *     subtotal_cents: int,
      *     subtotal: float,
      *     original_subtotal_cents: int,
@@ -37,9 +40,8 @@ class CartPricing
      *     discount_cents: int,
      *     discount: float,
      *     paid_subtotal_cents: int,
-     *     cashback_percent: float,
-     *     cashback_cents: int,
-     *     cashback: float,
+     *     line_cost_cents: int,
+     *     line_das_cents: int,
      *     price_changed: bool,
      *     previous_price: float|null
      *   }>,
@@ -55,8 +57,13 @@ class CartPricing
      *   shippingCost: float,
      *   total_cents: int,
      *   total: float,
-     *   cashback_total_cents: int,
-     *   cashbackTotal: float,
+     *   credits_required: float,
+     *   total_cost_cents: int,
+     *   totalCost: float,
+     *   estimated_das_cents: int,
+     *   estimatedDas: float,
+     *   estimated_margin_cents: int,
+     *   estimatedMargin: float,
      *   price_warnings: list<string>
      * }
      */
@@ -74,13 +81,10 @@ class CartPricing
             ->get()
             ->keyBy('id');
 
-        $loyaltySummary = app(LoyaltyTierService::class)->summaryFor($user);
-        $bonusCashbackPercent = (float) $loyaltySummary['bonus_cashback_percent'];
-        $maxCashbackPercent = (float) config('digitalcard.max_cashback_percent', 15.0);
-
         $lineItems = [];
         $subtotalCents = 0;
         $originalTotalCents = 0;
+        $totalCostCents = 0;
         $priceWarnings = [];
 
         foreach ($rawCart as $key => $entry) {
@@ -95,9 +99,12 @@ class CartPricing
             $quantity = min(max(1, (int) $entry['quantity']), (int) $product->stock);
             $unitPriceCents = self::toCents((float) $product->price);
             $origUnitCents = self::toCents((float) $product->original_price);
+            $unitCostCents = self::toCents($product->total_unit_cost);
+            $dasRate = (float) ($product->das_rate ?? config('nexosupri.default_das_rate_percent', 4.0));
 
             $lineSubtotalCents = $unitPriceCents * $quantity;
             $lineOrigSubtotalCents = $origUnitCents * $quantity;
+            $lineCostCents = $unitCostCents * $quantity;
 
             $priceChanged = false;
             $previousPrice = isset($entry['price_snapshot']) ? (float) $entry['price_snapshot'] : null;
@@ -112,14 +119,14 @@ class CartPricing
                 );
             }
 
-            $baseCbPercent = min(max(0.0, (float) $product->cashback_percent), $maxCashbackPercent);
-            $effectiveCbPercent = min(20.0, $baseCbPercent + $bonusCashbackPercent);
-
             $lineItems[] = [
                 'product' => $product,
                 'quantity' => $quantity,
                 'unit_price_cents' => $unitPriceCents,
                 'unit_price' => self::toDecimal($unitPriceCents),
+                'unit_cost_cents' => $unitCostCents,
+                'unit_cost' => self::toDecimal($unitCostCents),
+                'das_rate' => $dasRate,
                 'subtotal_cents' => $lineSubtotalCents,
                 'subtotal' => self::toDecimal($lineSubtotalCents),
                 'original_subtotal_cents' => $lineOrigSubtotalCents,
@@ -127,18 +134,17 @@ class CartPricing
                 'discount_cents' => 0,
                 'discount' => 0.0,
                 'paid_subtotal_cents' => $lineSubtotalCents,
-                'cashback_percent' => $effectiveCbPercent,
-                'cashback_cents' => 0,
-                'cashback' => 0.0,
+                'line_cost_cents' => $lineCostCents,
+                'line_das_cents' => 0,
                 'price_changed' => $priceChanged,
                 'previous_price' => $previousPrice,
             ];
 
             $subtotalCents += $lineSubtotalCents;
             $originalTotalCents += $lineOrigSubtotalCents;
+            $totalCostCents += $lineCostCents;
         }
 
-        // Resolução e validação do cupom (banco de dados)
         $coupon = null;
         $discountCents = 0;
         $activeCouponCode = null;
@@ -158,49 +164,85 @@ class CartPricing
                     $discountCents = min($subtotalCents, self::toCents((float) $candidate->value));
                 }
 
-                // Garante total mínimo de R$ 0,01 quando há itens no carrinho
                 $discountCents = min($discountCents, max(0, $subtotalCents - 1));
             }
         }
 
         $discountedMerchandiseCents = max(0, $subtotalCents - $discountCents);
 
-        // Rateio proporcional do desconto entre os itens e cálculo do cashback SOBRE O VALOR EFETIVAMENTE PAGO
-        $cashbackTotalCents = 0;
-        $remainingDiscount = $discountCents;
-        $lastIndex = count($lineItems) - 1;
+        $estimatedDasCents = 0;
 
-        foreach ($lineItems as $idx => &$line) {
-            if ($discountCents > 0 && $subtotalCents > 0) {
-                $itemDiscount = ($idx === $lastIndex)
-                    ? $remainingDiscount
-                    : (int) round($discountCents * ($line['subtotal_cents'] / $subtotalCents));
-                $itemDiscount = min($itemDiscount, $line['subtotal_cents']);
-                $remainingDiscount -= $itemDiscount;
+        if ($discountCents > 0 && $subtotalCents > 0 && $lineItems !== []) {
+            $allocations = [];
+            $remainders = [];
+            $allocatedTotal = 0;
+
+            foreach ($lineItems as $idx => $line) {
+                $exact = ($discountCents * $line['subtotal_cents']) / $subtotalCents;
+                $floored = min($line['subtotal_cents'], (int) floor($exact));
+                $allocations[$idx] = $floored;
+                $remainders[$idx] = [
+                    'idx' => $idx,
+                    'fraction' => $exact - $floored,
+                    'subtotal_cents' => $line['subtotal_cents'],
+                ];
+                $allocatedTotal += $floored;
+            }
+
+            $remaining = max(0, $discountCents - $allocatedTotal);
+            if ($remaining > 0) {
+                usort($remainders, static function (array $a, array $b): int {
+                    $cmp = $b['fraction'] <=> $a['fraction'];
+                    if ($cmp !== 0) {
+                        return $cmp;
+                    }
+
+                    return $b['subtotal_cents'] <=> $a['subtotal_cents'];
+                });
+
+                $lineCount = count($remainders);
+                $cursor = 0;
+                $guard = 0;
+                $maxIterations = $remaining + ($lineCount * 2);
+
+                while ($remaining > 0 && $guard < $maxIterations) {
+                    $idx = $remainders[$cursor % $lineCount]['idx'];
+                    if ($allocations[$idx] < $lineItems[$idx]['subtotal_cents']) {
+                        $allocations[$idx]++;
+                        $remaining--;
+                    }
+                    $cursor++;
+                    $guard++;
+                }
+            }
+
+            foreach ($lineItems as $idx => &$line) {
+                $itemDiscount = $allocations[$idx] ?? 0;
                 $line['discount_cents'] = $itemDiscount;
                 $line['discount'] = self::toDecimal($itemDiscount);
                 $line['paid_subtotal_cents'] = max(0, $line['subtotal_cents'] - $itemDiscount);
             }
+            unset($line);
+        }
 
-            $lineCashbackCents = (int) round($line['paid_subtotal_cents'] * ($line['cashback_percent'] / 100.0));
-            $line['cashback_cents'] = $lineCashbackCents;
-            $line['cashback'] = self::toDecimal($lineCashbackCents);
-            $cashbackTotalCents += $lineCashbackCents;
+        foreach ($lineItems as &$line) {
+            $lineDasCents = (int) round($line['paid_subtotal_cents'] * ($line['das_rate'] / 100.0));
+            $line['line_das_cents'] = $lineDasCents;
+            $estimatedDasCents += $lineDasCents;
         }
         unset($line);
 
-        // Cálculo de frete (só aplica quando há CEP informado; caso contrário é 0.00 até informar CEP)
         $shippingCents = 0;
         if ($cep !== null && trim($cep) !== '' && $discountedMerchandiseCents > 0) {
             $shippingQuote = app(ShippingCalculator::class)->calculate(
                 $cep,
                 $discountedMerchandiseCents,
-                $loyaltySummary['free_shipping_min_cents']
             );
             $shippingCents = $shippingQuote['cost_cents'];
         }
 
         $totalCents = $discountedMerchandiseCents + $shippingCents;
+        $estimatedMarginCents = $discountedMerchandiseCents - $totalCostCents - $estimatedDasCents;
 
         return [
             'items' => $lineItems,
@@ -216,8 +258,13 @@ class CartPricing
             'shippingCost' => self::toDecimal($shippingCents),
             'total_cents' => $totalCents,
             'total' => self::toDecimal($totalCents),
-            'cashback_total_cents' => $cashbackTotalCents,
-            'cashbackTotal' => self::toDecimal($cashbackTotalCents),
+            'credits_required' => self::toDecimal($totalCents),
+            'total_cost_cents' => $totalCostCents,
+            'totalCost' => self::toDecimal($totalCostCents),
+            'estimated_das_cents' => $estimatedDasCents,
+            'estimatedDas' => self::toDecimal($estimatedDasCents),
+            'estimated_margin_cents' => $estimatedMarginCents,
+            'estimatedMargin' => self::toDecimal($estimatedMarginCents),
             'price_warnings' => $priceWarnings,
         ];
     }

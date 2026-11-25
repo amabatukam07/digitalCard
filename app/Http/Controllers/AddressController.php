@@ -13,7 +13,7 @@ class AddressController extends Controller
     public function store(Request $request, ShippingCalculator $shippingCalculator): RedirectResponse
     {
         $validated = $request->validate([
-            'label' => ['nullable', 'string', 'max:60'],
+            'label' => ['nullable', 'string', 'max:80'],
             'recipient_name' => ['nullable', 'string', 'max:120'],
             'cep' => ['required', 'string', 'max:15'],
             'street' => ['nullable', 'string', 'max:180'],
@@ -27,6 +27,7 @@ class AddressController extends Controller
 
         $viaCep = $shippingCalculator->lookupCep($validated['cep']);
         $user = $request->user();
+        $company = $user->primaryCompany();
         $hasExisting = $user->addresses()->exists();
         $makeDefault = $request->boolean('is_default') || ! $hasExisting;
 
@@ -35,8 +36,10 @@ class AddressController extends Controller
         }
 
         $address = $user->addresses()->create([
-            'label' => ($validated['label'] ?? null) ?: 'Principal',
-            'recipient_name' => ($validated['recipient_name'] ?? null) ?: $user->name,
+            'company_id' => $company?->id,
+            'type' => 'delivery',
+            'label' => ($validated['label'] ?? null) ?: 'Unidade Principal',
+            'recipient_name' => ($validated['recipient_name'] ?? null) ?: ($company?->trade_name ?: $user->name),
             'cep' => substr($viaCep['cep'], 0, 9),
             'street' => ($validated['street'] ?? null) ?: $viaCep['street'],
             'number' => ($validated['number'] ?? null) ?: 'S/N',
@@ -52,7 +55,7 @@ class AddressController extends Controller
             $request->session()->put('shipping_address', $address->formattedLine());
         }
 
-        return back()->with('success', 'Endereço salvo no seu livro de endereços.');
+        return back()->with('success', 'Endereço corporativo salvo com sucesso.');
     }
 
     public function setDefault(Request $request, Address $address): RedirectResponse

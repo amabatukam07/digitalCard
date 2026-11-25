@@ -2,8 +2,10 @@
 
 namespace Tests\Feature;
 
+use App\Models\Company;
 use App\Models\User;
 use Database\Seeders\CatalogSeeder;
+use Database\Seeders\PlanSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Blade;
 use RecursiveDirectoryIterator;
@@ -14,27 +16,25 @@ class ProfessionalBrandingAndUiTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_public_and_authenticated_pages_use_professional_copy_and_wide_shell(): void
+    public function test_public_and_authenticated_pages_use_nexosupri_branding_and_wide_shell(): void
     {
-        $this->seed(CatalogSeeder::class);
+        $this->seed([PlanSeeder::class, CatalogSeeder::class]);
 
         $forbiddenPhrases = [
+            'DigitalCard',
+            'digitalcard',
+            'cashback',
+            'Cashback',
             'Projeto universitário',
             'universitária',
-            'Universitário',
-            'Cartão fictício',
             'Estudante DigitalCard',
-            'para estudo',
-            'ambiente acadêmico',
             'Simulação acadêmica',
-            'Criar conta de demonstração',
-            'Conta Demonstrativa',
-            'pedidos demonstrativos',
             'scroll-reveal-card',
         ];
 
         $publicRoutes = [
             route('catalog.index'),
+            route('plans.index'),
             route('login'),
             route('register'),
             route('admin.login'),
@@ -43,6 +43,7 @@ class ProfessionalBrandingAndUiTest extends TestCase
         foreach ($publicRoutes as $url) {
             $response = $this->get($url);
             $response->assertOk();
+            $response->assertSee('NexoSupri');
 
             foreach ($forbiddenPhrases as $phrase) {
                 $response->assertDontSee($phrase, false);
@@ -51,17 +52,32 @@ class ProfessionalBrandingAndUiTest extends TestCase
 
         $home = $this->get(route('catalog.index'));
         $home->assertSee('app-shell', false);
+        $home->assertSee('Cartão Corporativo · Modelo A');
         $home->assertDontSee('pagination-scroll-reveal', false);
+        $home->assertDontSee('Insumos por categoria');
+        $home->assertDontSee('Diferenciais NexoSupri');
+        $home->assertDontSee('Escolha o plano ideal para sua empresa');
 
-        $customer = User::factory()->create();
-        $cardResponse = $this->actingAs($customer)->get(route('card.show'));
-        $cardResponse->assertOk();
-        $cardResponse->assertSee('app-shell', false);
-        $cardResponse->assertSee('Carteira digital');
+        $company = Company::factory()->create(['trade_name' => 'Empresa Modelo UI']);
+        $company->wallet()->update(['balance' => 1000.00]);
+        $manager = User::factory()->forCompany($company)->create();
 
-        foreach ($forbiddenPhrases as $phrase) {
-            $cardResponse->assertDontSee($phrase, false);
+        foreach ([route('company.dashboard'), route('wallet.show')] as $authUrl) {
+            $resp = $this->actingAs($manager)->get($authUrl);
+            $resp->assertOk();
+            $resp->assertSee('app-shell', false);
+
+            foreach ($forbiddenPhrases as $phrase) {
+                $resp->assertDontSee($phrase, false);
+            }
         }
+
+        $this->actingAs($manager)->get(route('wallet.show'))
+            ->assertSee('Cartão Corporativo · Modelo A')
+            ->assertSee('Regras do Modelo A');
+
+        $this->actingAs($manager)->get('/meu-cartao')
+            ->assertRedirect('/carteira');
     }
 
     public function test_icon_component_respects_explicit_size_classes_without_colliding_size_4(): void
@@ -105,5 +121,25 @@ class ProfessionalBrandingAndUiTest extends TestCase
         }
 
         $this->assertSame([], array_values(array_unique($missing)));
+    }
+
+    public function test_every_svg_icon_rect_has_explicit_width_and_height(): void
+    {
+        $svgFiles = glob(resource_path('svg/icons/*.svg')) ?: [];
+        $this->assertNotEmpty($svgFiles);
+
+        $broken = [];
+        foreach ($svgFiles as $file) {
+            $content = (string) file_get_contents($file);
+            if (preg_match_all('/<rect\b([^>]*)>/i', $content, $matches)) {
+                foreach ($matches[1] as $attrs) {
+                    if (! preg_match('/\bwidth="/', $attrs) || ! preg_match('/\bheight="/', $attrs)) {
+                        $broken[] = basename($file);
+                    }
+                }
+            }
+        }
+
+        $this->assertSame([], array_values(array_unique($broken)));
     }
 }

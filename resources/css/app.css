@@ -166,12 +166,14 @@
 }
 
 :root:has(> head > meta[name="color-scheme"][content="dark"]) .header-dark-bar :where(.bg-paper):not(.bg-surface *),
+:root:has(> head > meta[name="color-scheme"][content="dark"]) .hero-dark-band :where(.bg-paper):not(.bg-surface *),
 :root:has(> head > meta[name="color-scheme"][content="dark"]) .site-footer :where(.bg-paper),
 :root:has(> head > meta[name="color-scheme"][content="dark"]) .virtual-card-shell :where(.bg-paper) {
     background-color: var(--paper-light) !important;
 }
 
 :root:has(> head > meta[name="color-scheme"][content="dark"]) .header-dark-bar :where(.text-ink):not(.bg-surface *),
+:root:has(> head > meta[name="color-scheme"][content="dark"]) .hero-dark-band :where(.text-ink):not(.bg-surface *),
 :root:has(> head > meta[name="color-scheme"][content="dark"]) .site-footer :where(.text-ink),
 :root:has(> head > meta[name="color-scheme"][content="dark"]) .virtual-card-shell :where(.text-ink) {
     color: var(--ink-light) !important;
@@ -246,12 +248,14 @@
     }
 
     :root:not(:has(> head > meta[name="color-scheme"][content="light"])) .header-dark-bar :where(.bg-paper):not(.bg-surface *),
+    :root:not(:has(> head > meta[name="color-scheme"][content="light"])) .hero-dark-band :where(.bg-paper):not(.bg-surface *),
     :root:not(:has(> head > meta[name="color-scheme"][content="light"])) .site-footer :where(.bg-paper),
     :root:not(:has(> head > meta[name="color-scheme"][content="light"])) .virtual-card-shell :where(.bg-paper) {
         background-color: var(--paper-light) !important;
     }
 
     :root:not(:has(> head > meta[name="color-scheme"][content="light"])) .header-dark-bar :where(.text-ink):not(.bg-surface *),
+    :root:not(:has(> head > meta[name="color-scheme"][content="light"])) .hero-dark-band :where(.text-ink):not(.bg-surface *),
     :root:not(:has(> head > meta[name="color-scheme"][content="light"])) .site-footer :where(.text-ink),
     :root:not(:has(> head > meta[name="color-scheme"][content="light"])) .virtual-card-shell :where(.text-ink) {
         color: var(--ink-light) !important;
@@ -260,6 +264,7 @@
 
 /* Fixed-dark brand surfaces remain legible independent of page color-scheme */
 .header-dark-bar,
+.hero-dark-band,
 .site-footer,
 .virtual-card-shell {
     color-scheme: dark;
@@ -271,12 +276,13 @@
 
 @layer components {
     .app-shell {
-        @apply w-full max-w-[1840px] mx-auto px-4 sm:px-6 lg:px-8 xl:px-10 2xl:px-12;
+        @apply w-full max-w-[1720px] mx-auto px-3 sm:px-5 lg:px-6;
     }
 
     .hero-display {
-        font-size: clamp(2rem, 1.35rem + 2.1vw, 3.5rem);
-        line-height: 1.06;
+        font-size: clamp(2.15rem, 1.45rem + 2.2vw, 3.65rem);
+        line-height: 1.04;
+        letter-spacing: -0.02em;
     }
 }
 
@@ -332,12 +338,112 @@
             transform: translateY(0px);
         }
         50% {
-            transform: translateY(-6px);
+            transform: translateY(-7px);
         }
     }
 
     .animate-subtle-float {
-        animation: subtle-float 5.5s ease-in-out infinite;
+        animation: subtle-float 4.2s ease-in-out infinite;
+    }
+
+    @keyframes hero-ken-burns {
+        0% {
+            transform: scale(1.01) translate3d(0, 0, 0);
+        }
+        100% {
+            transform: scale(1.09) translate3d(-1.5%, -0.6%, 0);
+        }
+    }
+
+    .hero-ken-burns-active {
+        animation: hero-ken-burns 5s ease-out forwards;
+    }
+
+    @keyframes hero-progress-fill {
+        0% {
+            transform: scaleX(0);
+        }
+        100% {
+            transform: scaleX(1);
+        }
+    }
+
+    .hero-progress-bar {
+        transform-origin: left center;
+        animation: hero-progress-fill 4500ms linear forwards;
+    }
+
+    .hero-paused .hero-progress-bar {
+        animation-play-state: paused;
+    }
+
+    @keyframes hero-caption-in {
+        0% {
+            opacity: 0;
+            transform: translateY(6px);
+        }
+        100% {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .animate-hero-caption {
+        animation: hero-caption-in 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+
+    @keyframes card-shimmer {
+        0% {
+            transform: translateX(-140%) skewX(-18deg);
+        }
+        100% {
+            transform: translateX(240%) skewX(-18deg);
+        }
+    }
+
+    .card-shimmer-sweep {
+        background: linear-gradient(110deg, transparent 20%, rgb(255 244 230 / 0.16) 46%, rgb(232 103 31 / 0.18) 54%, transparent 80%);
+        animation: card-shimmer 4.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    }
+
+    @keyframes card-halo-pulse {
+        0%, 100% {
+            opacity: 0.35;
+            transform: scale(0.97);
+        }
+        50% {
+            opacity: 0.62;
+            transform: scale(1.03);
+        }
+    }
+
+    .card-ambient-halo {
+        animation: card-halo-pulse 4.5s ease-in-out infinite;
+    }
+
+    .hero-grid-pattern {
+        background-image:
+            radial-gradient(600px circle at 82% 28%, rgb(217 72 15 / 0.18), transparent 65%),
+            linear-gradient(to right, rgb(244 241 234 / 0.04) 1px, transparent 1px),
+            linear-gradient(to bottom, rgb(244 241 234 / 0.04) 1px, transparent 1px);
+        background-size: auto, 36px 36px, 36px 36px;
+    }
+
+    .hero-slide-zoom {
+        transition: transform 12s ease-out;
+    }
+
+    .hero-scrim {
+        background:
+            linear-gradient(100deg, rgb(20 17 15 / 0.78) 0%, rgb(20 17 15 / 0.48) 48%, rgb(20 17 15 / 0.24) 100%),
+            linear-gradient(to top, rgb(20 17 15 / 0.62) 0%, transparent 45%);
+    }
+
+    @media (max-width: 1279px) {
+        .nav-scroll-fade {
+            mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent 100%);
+            -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent 100%);
+        }
     }
 }
 
@@ -355,10 +461,10 @@
     }
 }
 
-/* Touch targets >= 44px on mobile interactive elements (WCAG 2.2 / Fase 4) */
+/* Touch targets >= 44px on mobile interactive elements (preserves explicit compact icon/dot buttons) */
 @media (max-width: 768px) {
-    button,
-    a[role="button"],
+    button:not([data-compact-btn]),
+    a[role="button"]:not([data-compact-btn]),
     input[type="button"],
     input[type="submit"],
     select {

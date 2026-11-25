@@ -2,41 +2,51 @@
 
 namespace Database\Seeders;
 
-use App\Models\CardTransaction;
+use App\Enums\UserRole;
+use App\Models\Address;
+use App\Models\Company;
+use App\Models\CompanyUser;
+use App\Models\Contract;
 use App\Models\Coupon;
+use App\Models\CreditTransaction;
+use App\Models\Delivery;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\OrderStatusHistory;
+use App\Models\Payment;
+use App\Models\Plan;
 use App\Models\Product;
 use App\Models\ProductQuestion;
 use App\Models\ProductReview;
-use App\Models\SavingsGoal;
+use App\Models\PurchaseOrder;
+use App\Models\PurchaseOrderItem;
+use App\Models\StockMovement;
+use App\Models\Supplier;
+use App\Models\SupplierProduct;
 use App\Models\User;
-use App\Models\VirtualCard;
+use App\Services\CartPricing;
+use App\Services\WalletLedgerService;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 
 class DatabaseSeeder extends Seeder
 {
-    /**
-     * Seed the application's database.
-     */
     public function run(): void
     {
-        // 1. Catálogo base de Categorias e Produtos (45 produtos)
-        $this->call(CatalogSeeder::class);
+        $this->call([
+            PlanSeeder::class,
+            CatalogSeeder::class,
+        ]);
 
-        // 2. Contas iniciais e saldos de desenvolvimento APENAS em ambiente local ou de testes (S4)
         if (! app()->environment(['local', 'testing'])) {
-            $this->command?->info('Ambiente de produção detectado: contas iniciais e saldos de desenvolvimento foram ignorados por segurança.');
+            $this->command?->info('Ambiente de produção detectado: contas de demonstração ignoradas.');
 
             return;
         }
 
         $adminPlainPassword = (string) env('ADMIN_INITIAL_PASSWORD', '');
         $generatedAdminPassword = false;
-
         if ($adminPlainPassword === '') {
             $adminPlainPassword = Str::password(16);
             $generatedAdminPassword = true;
@@ -44,103 +54,433 @@ class DatabaseSeeder extends Seeder
 
         $clientPlainPassword = (string) env('DEMO_CLIENT_PASSWORD', '');
         $generatedClientPassword = false;
-
         if ($clientPlainPassword === '') {
             $clientPlainPassword = Str::password(16);
             $generatedClientPassword = true;
         }
 
-        // 3. Usuário Administrador (Desenvolvimento/Testes)
-        $admin = User::updateOrCreate(
-            ['email' => 'admin@digitalcard.com'],
+        // 1. Equipe Backoffice NexoSupri
+        $admin = $this->upsertBackofficeUser('admin@nexosupri.com.br', 'Administrador NexoSupri', $adminPlainPassword, UserRole::Admin, true);
+        $this->upsertBackofficeUser('financeiro@nexosupri.com.br', 'Tesouraria NexoSupri', $adminPlainPassword, UserRole::Finance, false);
+        $comprasUser = $this->upsertBackofficeUser('compras@nexosupri.com.br', 'Compras & Estoque NexoSupri', $adminPlainPassword, UserRole::Purchasing, false);
+        $this->upsertBackofficeUser('logistica@nexosupri.com.br', 'Operação & Logística NexoSupri', $adminPlainPassword, UserRole::Logistics, false);
+
+        // 2. Fornecedores e Pedido de Compra inicial
+        $supplierPapel = Supplier::updateOrCreate(
+            ['cnpj' => '22.333.444/0001-55'],
             [
-                'name' => 'Administrador DigitalCard',
-                'password' => Hash::make($adminPlainPassword),
+                'legal_name' => 'Distribuidora Paulista de Papéis e Escritório Ltda',
+                'trade_name' => 'Papel & Suprimentos SP',
+                'contact_name' => 'Ricardo Almeida',
+                'email' => 'comercial@papeisp.com.br',
+                'phone' => '(11) 3456-7890',
+                'payment_terms' => '28 dias boleto',
+                'lead_time_days' => 2,
+                'is_active' => true,
             ]
         );
-        $admin->forceFill(['is_admin' => true, 'email_verified_at' => now()])->save();
 
-        $adminCard = $admin->virtualCard()->firstOrCreate([], [
-            'card_number' => VirtualCard::generateUniqueCardNumber(),
-            'cvv' => VirtualCard::generateCvv(),
-            'expiration_date' => VirtualCard::DEFAULT_EXPIRATION_DATE,
-            'balance' => 0.00,
-            'cashback_earned' => 0.00,
-        ]);
-
-        $adminCard->update([
-            'balance' => 2500.00,
-            'cashback_earned' => 120.00,
-            'security_pin' => Hash::make('1234'),
-        ]);
-
-        CardTransaction::firstOrCreate(
+        $supplierLimpeza = Supplier::updateOrCreate(
+            ['cnpj' => '33.444.555/0001-66'],
             [
-                'virtual_card_id' => $adminCard->id,
-                'description' => 'Saldo inicial da carteira (Administrador)',
-            ],
+                'legal_name' => 'Atacado Higieniza Brasil S.A.',
+                'trade_name' => 'Higieniza Atacado',
+                'contact_name' => 'Camila Ferreira',
+                'email' => 'vendas@higieniza.com.br',
+                'phone' => '(11) 3987-6543',
+                'payment_terms' => '14/28 dias',
+                'lead_time_days' => 3,
+                'is_active' => true,
+            ]
+        );
+
+        $supplierCopa = Supplier::updateOrCreate(
+            ['cnpj' => '44.555.666/0001-77'],
             [
-                'type' => CardTransaction::TYPE_RECHARGE,
+                'legal_name' => 'Norte Sul Bebidas e Copa Distribuidora Ltda',
+                'trade_name' => 'Copa & Bebidas NS',
+                'contact_name' => 'Eduardo Santos',
+                'email' => 'pedidos@copabebidas.com.br',
+                'phone' => '(11) 3123-4567',
+                'payment_terms' => 'PIX / 15 dias',
+                'lead_time_days' => 2,
+                'is_active' => true,
+            ]
+        );
+
+        if ($papelA4 = Product::where('slug', 'papel-a4-500-folhas')->first()) {
+            SupplierProduct::updateOrCreate(
+                ['supplier_id' => $supplierPapel->id, 'product_id' => $papelA4->id],
+                ['supplier_sku' => 'CHX-A4-500', 'supplier_cost' => 24.00, 'lead_time_days' => 2, 'last_quoted_at' => now()]
+            );
+
+            if (! PurchaseOrder::where('invoice_number', 'NF-000142')->exists()) {
+                $po = PurchaseOrder::create([
+                    'supplier_id' => $supplierPapel->id,
+                    'created_by' => $comprasUser->id,
+                    'status' => PurchaseOrder::STATUS_RECEIVED,
+                    'invoice_number' => 'NF-000142',
+                    'total_amount' => 1250.00,
+                    'freight_amount' => 50.00,
+                    'ordered_at' => now()->subDays(7),
+                    'received_at' => now()->subDays(5),
+                    'notes' => 'Abastecimento inicial de estoque para contratos Business e Corporate.',
+                ]);
+
+                PurchaseOrderItem::create([
+                    'purchase_order_id' => $po->id,
+                    'product_id' => $papelA4->id,
+                    'quantity' => 50,
+                    'unit_cost' => 24.00,
+                    'inbound_freight_allocated' => 1.00,
+                ]);
+
+                StockMovement::create([
+                    'product_id' => $papelA4->id,
+                    'user_id' => $comprasUser->id,
+                    'type' => StockMovement::TYPE_PURCHASE_IN,
+                    'quantity' => 50,
+                    'stock_before' => max(0, $papelA4->stock - 50),
+                    'stock_after' => $papelA4->stock,
+                    'reference_type' => $po->getMorphClass(),
+                    'reference_id' => $po->id,
+                    'notes' => 'Recebimento NF-000142 (Papel & Suprimentos SP)',
+                    'created_at' => now()->subDays(5),
+                ]);
+            }
+        }
+
+        if ($detergente = Product::where('slug', 'detergente-500ml-cx12')->first()) {
+            SupplierProduct::updateOrCreate(
+                ['supplier_id' => $supplierLimpeza->id, 'product_id' => $detergente->id],
+                ['supplier_sku' => 'YPE-500-CX12', 'supplier_cost' => 22.00, 'lead_time_days' => 3, 'last_quoted_at' => now()]
+            );
+        }
+
+        if ($cafe = Product::where('slug', 'cafe-500g')->first()) {
+            SupplierProduct::updateOrCreate(
+                ['supplier_id' => $supplierCopa->id, 'product_id' => $cafe->id],
+                ['supplier_sku' => '3C-CAF-500', 'supplier_cost' => 18.00, 'lead_time_days' => 2, 'last_quoted_at' => now()]
+            );
+        }
+
+        // 3. Empresas Clientes, Contratos, Carteiras e Equipe
+        $ledger = app(WalletLedgerService::class);
+        $businessPlan = Plan::where('slug', 'business')->firstOrFail();
+        $corporatePlan = Plan::where('slug', 'corporate')->firstOrFail();
+
+        $alfa = Company::updateOrCreate(
+            ['cnpj' => '12.345.678/0001-90'],
+            [
+                'legal_name' => 'Alfa Soluções Corporativas Ltda',
+                'trade_name' => 'Alfa Soluções',
+                'state_registration' => '110.220.330.440',
+                'email' => 'compras@alfaempresa.com.br',
+                'phone' => '(11) 3000-1000',
+                'billing_address' => 'Av. Paulista, 1578 - Bela Vista, São Paulo - SP',
+                'billing_cep' => '01310-200',
+                'status' => Company::STATUS_ACTIVE,
+                'require_order_approval' => true,
+                'low_balance_threshold' => 200.00,
+            ]
+        );
+
+        $alfaGestor = $this->upsertCompanyUser('gestor@alfaempresa.com.br', 'Mariana Costa (Gestora Alfa)', $clientPlainPassword, $alfa, CompanyUser::ROLE_MANAGER, null, 'Diretoria Administrativa');
+        $alfaSolicitante = $this->upsertCompanyUser('solicitante@alfaempresa.com.br', 'Lucas Oliveira (Solicitante Alfa)', $clientPlainPassword, $alfa, CompanyUser::ROLE_REQUESTER, 200.00, 'Copa & Facilities');
+
+        Address::firstOrCreate(
+            ['user_id' => $alfaGestor->id, 'company_id' => $alfa->id, 'cep' => '01310-200'],
+            [
+                'type' => 'delivery',
+                'label' => 'Matriz Paulista',
+                'recipient_name' => 'Recepção / Almoxarifado Alfa',
+                'street' => 'Av. Paulista',
+                'number' => '1578',
+                'complement' => '8º andar',
+                'neighborhood' => 'Bela Vista',
+                'city' => 'São Paulo',
+                'state' => 'SP',
+                'is_default' => true,
+            ]
+        );
+
+        $alfaWallet = $alfa->wallet()->firstOrFail();
+        if (! $alfaWallet->transactions()->exists()) {
+            $alfaContract = Contract::create([
+                'company_id' => $alfa->id,
+                'plan_id' => $businessPlan->id,
+                'contracted_amount' => 1000.00,
+                'credits_granted' => 1000.00,
+                'status' => Contract::STATUS_ACTIVE,
+                'terms_version' => (string) config('nexosupri.terms_version', 'Modelo-A-v1'),
+                'accepted_terms_at' => now()->subDays(10),
+                'accepted_by_user_id' => $alfaGestor->id,
+                'starts_at' => now()->subDays(10),
+            ]);
+
+            $alfaPayment = Payment::create([
+                'company_id' => $alfa->id,
+                'credit_wallet_id' => $alfaWallet->id,
+                'contract_id' => $alfaContract->id,
+                'requested_by_user_id' => $alfaGestor->id,
+                'payment_method' => 'pix_dynamic',
+                'txid' => 'NSPXSEEDALFA000000000001',
+                'amount' => 1000.00,
+                'approved_amount' => 1000.00,
+                'status' => Payment::STATUS_APPROVED,
+                'admin_notes' => 'Liquidação inicial Plano Business',
+                'reviewed_by' => $admin->id,
+                'reviewed_at' => now()->subDays(10),
+            ]);
+
+            $ledger->credit(
+                lockedWallet: $alfaWallet,
+                amountCents: CartPricing::toCents(1000.00),
+                type: CreditTransaction::TYPE_CREDIT_PURCHASE,
+                description: 'Contratação Plano Business (1.000 créditos)',
+                reference: $alfaPayment,
+                idempotencyKey: "seed:payment:{$alfaPayment->id}",
+                actorUserId: $alfaGestor->id,
+                reason: 'Conversão Modelo A (1 crédito = R$ 1,00)',
+            );
+        }
+
+        // Pedido entregue inicial da Alfa para povoar relatórios e histórico
+        $papel = Product::where('slug', 'papel-a4-500-folhas')->first();
+        $cafeItem = Product::where('slug', 'cafe-500g')->first();
+        if ($papel && $cafeItem && ! Order::where('idempotency_key', 'seed-alfa-delivered-order')->exists()) {
+            $subtotal = round(((float) $papel->price * 3) + ((float) $cafeItem->price * 2), 2);
+            $costSnapshot = round(($papel->total_unit_cost * 3) + ($cafeItem->total_unit_cost * 2), 2);
+            $dasSnapshot = round($subtotal * 0.04, 2);
+            $marginSnapshot = round($subtotal - $costSnapshot - $dasSnapshot, 2);
+
+            $deliveredOrder = Order::create([
+                'company_id' => $alfa->id,
+                'user_id' => $alfaGestor->id,
+                'approved_by_user_id' => $alfaGestor->id,
+                'approved_at' => now()->subDays(4),
+                'idempotency_key' => 'seed-alfa-delivered-order',
+                'subtotal_amount' => $subtotal,
+                'discount_amount' => 0.00,
+                'shipping_cost' => 0.00,
+                'total_amount' => $subtotal,
+                'credits_debited' => $subtotal,
+                'total_cost_snapshot' => $costSnapshot,
+                'estimated_das_amount' => $dasSnapshot,
+                'estimated_margin_amount' => $marginSnapshot,
+                'status' => Order::STATUS_DELIVERED,
+                'shipping_address' => 'Av. Paulista, 1578, 8º andar — Bela Vista, São Paulo - SP — CEP 01310-200',
+                'shipping_cep' => '01310-200',
+                'tracking_code' => 'NXSP20260001BR',
+                'department' => 'Diretoria Administrativa',
+                'delivered_at' => now()->subDays(2),
+            ]);
+
+            OrderItem::create([
+                'order_id' => $deliveredOrder->id,
+                'product_id' => $papel->id,
+                'product_name' => $papel->name,
+                'product_sku' => $papel->sku,
+                'unit_presentation' => $papel->presentation,
+                'quantity' => 3,
+                'unit_price' => $papel->price,
+                'unit_cost_snapshot' => $papel->total_unit_cost,
+                'das_rate_snapshot' => $papel->das_rate,
+                'discount_allocated' => 0.00,
+                'item_status' => Order::STATUS_DELIVERED,
+            ]);
+
+            OrderItem::create([
+                'order_id' => $deliveredOrder->id,
+                'product_id' => $cafeItem->id,
+                'product_name' => $cafeItem->name,
+                'product_sku' => $cafeItem->sku,
+                'unit_presentation' => $cafeItem->presentation,
+                'quantity' => 2,
+                'unit_price' => $cafeItem->price,
+                'unit_cost_snapshot' => $cafeItem->total_unit_cost,
+                'das_rate_snapshot' => $cafeItem->das_rate,
+                'discount_allocated' => 0.00,
+                'item_status' => Order::STATUS_DELIVERED,
+            ]);
+
+            OrderStatusHistory::create([
+                'order_id' => $deliveredOrder->id,
+                'from_status' => null,
+                'to_status' => Order::STATUS_REQUESTED,
+                'changed_by' => $alfaGestor->id,
+                'notes' => 'Pedido confirmado com débito em créditos.',
+                'created_at' => now()->subDays(4),
+            ]);
+
+            OrderStatusHistory::create([
+                'order_id' => $deliveredOrder->id,
+                'from_status' => Order::STATUS_REQUESTED,
+                'to_status' => Order::STATUS_DELIVERED,
+                'changed_by' => $admin->id,
+                'notes' => 'Entrega concluída na recepção corporativa.',
+                'created_at' => now()->subDays(2),
+            ]);
+
+            Delivery::create([
+                'order_id' => $deliveredOrder->id,
+                'status' => Delivery::STATUS_DELIVERED,
+                'carrier' => 'Frota NexoSupri SP',
+                'tracking_code' => 'NXSP20260001BR',
+                'scheduled_route' => 'Rota Centro / Paulista',
+                'receiver_name' => 'Mariana Costa',
+                'delivered_at' => now()->subDays(2),
+            ]);
+
+            $ledger->debit(
+                lockedWallet: $alfaWallet->fresh(),
+                amountCents: CartPricing::toCents($subtotal),
+                type: CreditTransaction::TYPE_ORDER_DEBIT,
+                description: 'Compra corporativa #PED-'.str_pad((string) $deliveredOrder->id, 6, '0', STR_PAD_LEFT),
+                reference: $deliveredOrder,
+                idempotencyKey: "order:{$deliveredOrder->id}:debit",
+                actorUserId: $alfaGestor->id,
+                reason: 'Consumo inicial de abastecimento',
+            );
+        }
+
+        // Pedido pendente de aprovação criado pelo solicitante da Alfa
+        if ($copo = Product::where('slug', 'copo-descartavel-180ml')->first()) {
+            if (! Order::where('idempotency_key', 'seed-alfa-pending-approval')->exists()) {
+                $pendingSubtotal = round((float) $copo->price * 5, 2);
+                $pendingCost = round($copo->total_unit_cost * 5, 2);
+                $pendingDas = round($pendingSubtotal * 0.04, 2);
+
+                $pendingOrder = Order::create([
+                    'company_id' => $alfa->id,
+                    'user_id' => $alfaSolicitante->id,
+                    'idempotency_key' => 'seed-alfa-pending-approval',
+                    'subtotal_amount' => $pendingSubtotal,
+                    'discount_amount' => 0.00,
+                    'shipping_cost' => 0.00,
+                    'total_amount' => $pendingSubtotal,
+                    'credits_debited' => 0.00,
+                    'total_cost_snapshot' => $pendingCost,
+                    'estimated_das_amount' => $pendingDas,
+                    'estimated_margin_amount' => round($pendingSubtotal - $pendingCost - $pendingDas, 2),
+                    'status' => Order::STATUS_AWAITING_APPROVAL,
+                    'shipping_address' => 'Av. Paulista, 1578, 8º andar — Bela Vista, São Paulo - SP — CEP 01310-200',
+                    'shipping_cep' => '01310-200',
+                    'department' => 'Copa & Facilities',
+                    'notes' => 'Reposição semanal de copos para copa.',
+                ]);
+
+                OrderItem::create([
+                    'order_id' => $pendingOrder->id,
+                    'product_id' => $copo->id,
+                    'product_name' => $copo->name,
+                    'product_sku' => $copo->sku,
+                    'unit_presentation' => $copo->presentation,
+                    'quantity' => 5,
+                    'unit_price' => $copo->price,
+                    'unit_cost_snapshot' => $copo->total_unit_cost,
+                    'das_rate_snapshot' => $copo->das_rate,
+                    'discount_allocated' => 0.00,
+                    'item_status' => Order::STATUS_AWAITING_APPROVAL,
+                ]);
+
+                OrderStatusHistory::create([
+                    'order_id' => $pendingOrder->id,
+                    'from_status' => null,
+                    'to_status' => Order::STATUS_AWAITING_APPROVAL,
+                    'changed_by' => $alfaSolicitante->id,
+                    'notes' => 'Aguardando aprovação do gestor da Alfa Soluções.',
+                    'created_at' => now()->subHours(6),
+                ]);
+            }
+        }
+
+        // Segunda empresa cliente: Beta Logística
+        $beta = Company::updateOrCreate(
+            ['cnpj' => '98.765.432/0001-10'],
+            [
+                'legal_name' => 'Beta Logística e Serviços S.A.',
+                'trade_name' => 'Beta Logística',
+                'state_registration' => '220.330.440.550',
+                'email' => 'suprimentos@betaempresa.com.br',
+                'phone' => '(11) 3555-2200',
+                'billing_address' => 'Rua Vergueiro, 2100 - Vila Mariana, São Paulo - SP',
+                'billing_cep' => '04102-000',
+                'status' => Company::STATUS_ACTIVE,
+                'require_order_approval' => false,
+                'low_balance_threshold' => 300.00,
+            ]
+        );
+
+        $betaGestor = $this->upsertCompanyUser('gestor@betaempresa.com.br', 'Rafael Mendes (Gestor Beta)', $clientPlainPassword, $beta, CompanyUser::ROLE_MANAGER, null, 'Suprimentos');
+        $betaWallet = $beta->wallet()->firstOrFail();
+
+        if (! $betaWallet->transactions()->exists()) {
+            $betaContract = Contract::create([
+                'company_id' => $beta->id,
+                'plan_id' => $corporatePlan->id,
+                'contracted_amount' => 2500.00,
+                'credits_granted' => 2500.00,
+                'status' => Contract::STATUS_ACTIVE,
+                'terms_version' => (string) config('nexosupri.terms_version', 'Modelo-A-v1'),
+                'accepted_terms_at' => now()->subDays(5),
+                'accepted_by_user_id' => $betaGestor->id,
+                'starts_at' => now()->subDays(5),
+            ]);
+
+            $betaPayment = Payment::create([
+                'company_id' => $beta->id,
+                'credit_wallet_id' => $betaWallet->id,
+                'contract_id' => $betaContract->id,
+                'requested_by_user_id' => $betaGestor->id,
+                'payment_method' => 'pix_dynamic',
+                'txid' => 'NSPXSEEDBETA000000000001',
                 'amount' => 2500.00,
-                'balance_after' => 2500.00,
-            ]
-        );
+                'approved_amount' => 2500.00,
+                'status' => Payment::STATUS_APPROVED,
+                'admin_notes' => 'Liquidação inicial Plano Corporate',
+                'reviewed_by' => $admin->id,
+                'reviewed_at' => now()->subDays(5),
+            ]);
 
-        // 4. Usuário Cliente (Desenvolvimento/Testes)
-        $client = User::updateOrCreate(
-            ['email' => 'cliente@digitalcard.com'],
-            [
-                'name' => 'Cliente DigitalCard',
-                'password' => Hash::make($clientPlainPassword),
-            ]
-        );
-        $client->forceFill(['is_admin' => false, 'email_verified_at' => now()])->save();
-
-        $clientCard = $client->virtualCard()->firstOrCreate([], [
-            'card_number' => VirtualCard::generateUniqueCardNumber(),
-            'cvv' => VirtualCard::generateCvv(),
-            'expiration_date' => VirtualCard::DEFAULT_EXPIRATION_DATE,
-            'balance' => 0.00,
-            'cashback_earned' => 0.00,
-        ]);
-
-        $clientCard->update([
-            'balance' => 7500.00,
-            'cashback_earned' => 185.50,
-            'security_pin' => Hash::make('1234'),
-        ]);
-
-        CardTransaction::firstOrCreate(
-            [
-                'virtual_card_id' => $clientCard->id,
-                'description' => 'Saldo inicial da carteira (Cliente)',
-            ],
-            [
-                'type' => CardTransaction::TYPE_RECHARGE,
-                'amount' => 7500.00,
-                'balance_after' => 7500.00,
-            ]
-        );
-
-        if ($generatedAdminPassword) {
-            $this->command?->warn("[SEED LOCAL] Senha gerada para admin@digitalcard.com (exibida uma única vez): {$adminPlainPassword}");
+            $ledger->credit(
+                lockedWallet: $betaWallet,
+                amountCents: CartPricing::toCents(2500.00),
+                type: CreditTransaction::TYPE_CREDIT_PURCHASE,
+                description: 'Contratação Plano Corporate (2.500 créditos)',
+                reference: $betaPayment,
+                idempotencyKey: "seed:payment:{$betaPayment->id}",
+                actorUserId: $betaGestor->id,
+                reason: 'Conversão Modelo A (1 crédito = R$ 1,00)',
+            );
         }
 
-        if ($generatedClientPassword) {
-            $this->command?->warn("[SEED LOCAL] Senha gerada para cliente@digitalcard.com (exibida uma única vez): {$clientPlainPassword}");
-        }
+        // 4. Cupons corporativos + avaliações e perguntas técnicas
+        Coupon::updateOrCreate(
+            ['code' => 'NEXO5'],
+            [
+                'label' => '5% OFF em pedidos corporativos acima de R$ 500,00',
+                'type' => Coupon::TYPE_PERCENT,
+                'value' => 5.00,
+                'min_total' => 500.00,
+                'starts_at' => now()->subDay(),
+                'ends_at' => now()->addMonths(6),
+                'max_uses' => 200,
+                'per_user_limit' => 3,
+                'is_active' => true,
+            ]
+        );
 
-        // 5. Cupons promocionais adicionais e segundo cliente de demonstração (para testes de transferência P2P)
         Coupon::updateOrCreate(
             ['code' => 'SETUP15'],
             [
-                'label' => '15% OFF na linha Escritório & Setup acima de R$ 1.200',
+                'label' => '15% OFF em kits de escritório acima de R$ 2.500,00',
                 'type' => Coupon::TYPE_PERCENT,
                 'value' => 15.00,
-                'min_total' => 1200.00,
+                'min_total' => 2500.00,
                 'starts_at' => now()->subDay(),
                 'ends_at' => now()->addMonths(6),
-                'max_uses' => 250,
+                'max_uses' => 100,
                 'per_user_limit' => 2,
                 'is_active' => true,
             ]
@@ -149,184 +489,107 @@ class DatabaseSeeder extends Seeder
         Coupon::updateOrCreate(
             ['code' => 'TECH100'],
             [
-                'label' => 'R$ 100 OFF em compras acima de R$ 899',
+                'label' => 'R$ 100 OFF em tecnologia e equipamentos acima de R$ 1.500,00',
                 'type' => Coupon::TYPE_FIXED,
                 'value' => 100.00,
-                'min_total' => 899.00,
+                'min_total' => 1500.00,
                 'starts_at' => now()->subDay(),
                 'ends_at' => now()->addMonths(6),
-                'max_uses' => 300,
+                'max_uses' => 150,
                 'per_user_limit' => 2,
                 'is_active' => true,
             ]
         );
 
-        $marina = User::updateOrCreate(
-            ['email' => 'marina@digitalcard.com'],
-            [
-                'name' => 'Marina Souza',
-                'password' => Hash::make($clientPlainPassword),
-            ]
-        );
-        $marina->forceFill(['is_admin' => false, 'email_verified_at' => now()])->save();
-
-        $marinaCard = $marina->virtualCard()->firstOrCreate([], [
-            'card_number' => VirtualCard::generateUniqueCardNumber(),
-            'cvv' => VirtualCard::generateCvv(),
-            'expiration_date' => VirtualCard::DEFAULT_EXPIRATION_DATE,
-            'balance' => 0.00,
-            'cashback_earned' => 0.00,
-        ]);
-
-        $marinaCard->update([
-            'balance' => 1800.00,
-            'cashback_earned' => 45.00,
-            'security_pin' => Hash::make('1234'),
-        ]);
-
-        CardTransaction::firstOrCreate(
-            [
-                'virtual_card_id' => $marinaCard->id,
-                'description' => 'Saldo inicial da carteira (Marina)',
-            ],
-            [
-                'type' => CardTransaction::TYPE_RECHARGE,
-                'amount' => 1800.00,
-                'balance_after' => 1800.00,
-            ]
-        );
-
-        // Pedido entregue inicial para o cliente iniciar no nível Prata do Clube DigitalCard
-        if ($ps5 = Product::where('slug', 'playstation-5-slim-1tb')->first()) {
-            $seedOrder = Order::firstOrCreate(
-                ['idempotency_key' => 'seed-client-initial-delivered-order'],
+        if ($papel) {
+            ProductReview::updateOrCreate(
+                ['product_id' => $papel->id, 'user_id' => $alfaGestor->id],
                 [
-                    'user_id' => $client->id,
-                    'subtotal_amount' => (float) $ps5->price,
-                    'discount_amount' => 0.00,
-                    'shipping_cost' => 0.00,
-                    'total_amount' => (float) $ps5->price,
-                    'cashback_total' => round((float) $ps5->price * ((float) $ps5->cashback_percent / 100), 2),
-                    'status' => Order::STATUS_DELIVERED,
-                    'shipping_address' => 'Av. Paulista, 1578 - Bela Vista, São Paulo - SP (CEP: 01310-200)',
-                    'shipping_cep' => '01310-200',
-                    'tracking_code' => 'DCBR990042108BR',
-                    'delivered_at' => now()->subDays(5),
-                    'cashback_credited_at' => now()->subDays(5),
+                    'rating' => 5,
+                    'comment' => 'Resma padrão excelente para impressoras corporativas e entrega pontual pelo portal NexoSupri.',
+                    'is_verified_purchase' => true,
                 ]
             );
 
-            if ($seedOrder->items()->count() === 0) {
-                OrderItem::create([
-                    'order_id' => $seedOrder->id,
-                    'product_id' => $ps5->id,
-                    'product_name' => $ps5->name,
-                    'product_sku' => $ps5->slug,
-                    'quantity' => 1,
-                    'unit_price' => (float) $ps5->price,
-                    'cashback_percent' => (float) $ps5->cashback_percent,
-                    'discount_allocated' => 0.00,
-                    'item_status' => 'normal',
-                ]);
-
-                OrderStatusHistory::create([
-                    'order_id' => $seedOrder->id,
-                    'from_status' => null,
-                    'to_status' => Order::STATUS_DELIVERED,
-                    'changed_by' => $admin->id,
-                    'notes' => 'Pedido demonstrativo entregue (Clube DigitalCard Prata).',
-                    'created_at' => now()->subDays(5),
-                ]);
-            }
-        }
-
-        // 6. Avaliações iniciais de referência para desenvolvimento
-        $sampleReviews = [
-            'smartphone-galaxy-s24-ultra' => [$client->id, 5, 'Aparelho espetacular! Comprei com o saldo do Cartão Virtual, entrou na hora como Produto solicitado e quando foi entregue já recebi o cashback direto na carteira.'],
-            'playstation-5-slim-1tb' => [$client->id, 5, 'Entrega muito rápida! Console lacrado e o desconto com o cupom DIGITAL10 valeu muito a pena.'],
-            'headphone-sony-wh-1000xm5-bluetooth' => [$client->id, 5, 'Ótimo cancelamento de ruído. Pagamento pelo DigitalCard aprovou no mesmo segundo.'],
-            'air-fryer-philips-walita-essential-xl' => [$client->id, 5, 'Muito espaçosa e silenciosa, além de dar 6% de cashback de volta no cartão virtual!'],
-            'cadeira-ergonomica-herman-miller-aeron' => [$marina->id, 5, 'Qualidade absurda para 8h+ de trabalho por dia. A tela Pellicle não esquenta e o ajuste lombar faz muita diferença.'],
-            'cadeira-ergonomica-elements-astra-pro' => [$client->id, 5, 'Excelente custo-benefício em cadeira ergonômica. Apoio de cabeça e braços 3D muito confortáveis.'],
-            'mesa-regulavel-eletrica-geniodesks-pro' => [$marina->id, 5, 'Motor duplo super silencioso e tampo em nogueira impecável. Alternar entre sentado e em pé mudou minha rotina.'],
-            'microfone-dinamico-shure-sm7db' => [$client->id, 5, 'O pré-amp embutido dispensa Cloudlifter e entrega voz de estúdio limpa para reuniões e podcasts.'],
-            'elgato-stream-deck-mk2-15-teclas' => [$marina->id, 5, 'Agilizou todos os meus atalhos no VS Code, Figma e chamadas de vídeo com um toque.'],
-            'power-bank-anker-prime-27650mah-250w' => [$client->id, 5, 'Carrega meu notebook e smartphone juntos em viagem sem sufoco. O visor de watts ajuda demais.'],
-            'robo-aspirador-roborock-q-revo' => [$marina->id, 5, 'Mapeia a casa inteira com precisão e a base lava e seca os mops sozinha. Zero trabalho no dia a dia.'],
-            'cafeteira-delonghi-magnifica-start' => [$client->id, 5, 'Moedor embutido na hora deixa o espresso com crema perfeita toda manhã. Cashback caiu direto na carteira.'],
-            'apple-mac-mini-m4-16gb-512gb' => [$marina->id, 5, 'Minúsculo, silencioso e extremamente rápido com o chip M4. Ocupou quase nada na mesa.'],
-            'monitor-lg-dualup-28-ergo-qhd' => [$client->id, 5, 'Formato vertical 16:18 substitui dois monitores empilhados com cabo USB-C único carregando o notebook.'],
-            'console-portatil-asus-rog-ally-x-1tb' => [$marina->id, 4, 'Bateria de 80Wh aguenta viagens longas e os 24GB de RAM deixam jogos pesados muito fluidos.'],
-            'camera-dji-osmo-pocket-3-creator-combo' => [$client->id, 5, 'Estabilização de 3 eixos impecável e o transmissor DJI Mic 2 no combo grava áudio cristalino.'],
-        ];
-
-        foreach ($sampleReviews as $slug => [$userId, $rating, $comment]) {
-            if ($prod = Product::where('slug', $slug)->first()) {
-                ProductReview::updateOrCreate(
-                    ['product_id' => $prod->id, 'user_id' => $userId],
-                    ['rating' => $rating, 'comment' => $comment]
-                );
-            }
-        }
-
-        // 7. Perguntas e respostas técnicas iniciais nos produtos
-        $sampleQuestions = [
-            'cadeira-ergonomica-herman-miller-aeron' => [
-                $client->id,
-                'O tamanho B atende bem pessoas entre 1,68m e 1,85m? Vem com ajuste PostureFit SL?',
-                'Sim! O tamanho B é o padrão corporativo ideal entre 1,60m e 1,90m (até 159kg) e esta versão já inclui suporte lombar duplo PostureFit SL.',
-            ],
-            'apple-mac-mini-m4-16gb-512gb' => [
-                $marina->id,
-                'Consigo ligar dois monitores 4K simultâneos sem adaptador externo especial?',
-                'Sim! O Mac mini M4 suporta até três monitores ao mesmo tempo usando a porta HDMI 2.1 integrada e as portas Thunderbolt 4 USB-C traseiras.',
-            ],
-            'microfone-dinamico-shure-sm7db' => [
-                $client->id,
-                'Preciso comprar Cloudlifter ou pré-amp separado para usar com a Scarlett 2i2?',
-                'Não precisa! O modelo SM7dB já integra um pré-amplificador ativo desenhado em parceria com a Cloud de +18dB ou +28dB com chave bypass.',
-            ],
-            'robo-aspirador-roborock-q-revo' => [
-                $marina->id,
-                'A base autolimpante exige sacos específicos ou funciona direto com reservatório de água limpa e suja?',
-                'A estação lava e seca os mops automaticamente usando tanques separados de água limpa e suja e coleta poeira em saco descartável de grande capacidade (até 7 semanas).',
-            ],
-            'playstation-5-slim-1tb' => [
-                $marina->id,
-                'Este modelo é a versão com leitor de discos Ultra HD Blu-ray e garantia nacional?',
-                'Sim, é a edição oficial brasileira com leitor acoplado modular, SSD de 1TB e 1 controle sem fio DualSense na caixa.',
-            ],
-            'anel-inteligente-samsung-galaxy-ring' => [
-                $client->id,
-                'A bateria aguenta quantos dias reais fora do estojo de carregamento?',
-                'Entre 6 e 7 dias contínuos dependendo do tamanho do aro, com recarga rápida diretamente no estojo translúcido portátil.',
-            ],
-        ];
-
-        foreach ($sampleQuestions as $slug => [$askerId, $qText, $aText]) {
-            if ($prod = Product::where('slug', $slug)->first()) {
-                ProductQuestion::updateOrCreate(
-                    ['product_id' => $prod->id, 'user_id' => $askerId, 'question' => $qText],
-                    [
-                        'answer' => $aText,
-                        'answered_by' => $admin->id,
-                        'answered_at' => now()->subDays(2),
-                        'is_public' => true,
-                    ]
-                );
-            }
-        }
-
-        // 8. Meta inicial de Cofrinho DigitalCard (valor reservado 0.00 para preservar reconciliação inicial da carteira)
-        if ($macMini = Product::where('slug', 'apple-mac-mini-m4-16gb-512gb')->first()) {
-            SavingsGoal::firstOrCreate(
-                ['user_id' => $client->id, 'name' => 'Setup Apple Mac mini M4'],
+            ProductQuestion::updateOrCreate(
+                ['product_id' => $papel->id, 'user_id' => $alfaSolicitante->id, 'question' => 'O papel A4 atende impressão frente e verso em impressora laser de alta velocidade?'],
                 [
-                    'product_id' => $macMini->id,
-                    'target_amount' => (float) $macMini->price,
-                    'current_amount' => 0.00,
+                    'answer' => 'Sim! Gramatura 75 g/m² com corte preciso e baixa geração de pó para uso intenso em multifuncionais corporativas.',
+                    'answered_by' => $admin->id,
+                    'answered_at' => now()->subDays(2),
+                    'is_public' => true,
                 ]
             );
         }
+
+        if ($generatedAdminPassword) {
+            $this->command?->warn("[SEED LOCAL] Senha gerada para equipe backoffice (admin@nexosupri.com.br): {$adminPlainPassword}");
+        }
+
+        if ($generatedClientPassword) {
+            $this->command?->warn("[SEED LOCAL] Senha gerada para empresas (gestor@alfaempresa.com.br / solicitante@alfaempresa.com.br / gestor@betaempresa.com.br): {$clientPlainPassword}");
+        }
+    }
+
+    private function upsertBackofficeUser(
+        string $email,
+        string $name,
+        string $plainPassword,
+        UserRole $role,
+        bool $isAdmin,
+    ): User {
+        $user = User::updateOrCreate(
+            ['email' => $email],
+            [
+                'name' => $name,
+                'password' => Hash::make($plainPassword),
+            ]
+        );
+
+        $user->forceFill([
+            'is_admin' => $isAdmin,
+            'role' => $role->value,
+            'email_verified_at' => now(),
+        ])->save();
+
+        return $user;
+    }
+
+    private function upsertCompanyUser(
+        string $email,
+        string $name,
+        string $plainPassword,
+        Company $company,
+        string $companyRole,
+        ?float $spendingLimit,
+        string $department,
+    ): User {
+        $user = User::updateOrCreate(
+            ['email' => $email],
+            [
+                'name' => $name,
+                'password' => Hash::make($plainPassword),
+            ]
+        );
+
+        $user->forceFill([
+            'is_admin' => false,
+            'role' => $companyRole === CompanyUser::ROLE_MANAGER
+                ? UserRole::CompanyManager->value
+                : UserRole::CompanyRequester->value,
+            'email_verified_at' => now(),
+        ])->save();
+
+        CompanyUser::updateOrCreate(
+            ['company_id' => $company->id, 'user_id' => $user->id],
+            [
+                'company_role' => $companyRole,
+                'spending_limit' => $spendingLimit,
+                'department' => $department,
+                'is_active' => true,
+            ]
+        );
+
+        return $user;
     }
 }

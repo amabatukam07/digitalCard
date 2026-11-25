@@ -4,8 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\ProfileUpdateRequest;
 use App\Models\AuditLog;
+use App\Models\CompanyUser;
 use App\Models\Order;
-use App\Services\LoyaltyTierService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -16,9 +16,10 @@ use Illuminate\View\View;
 
 class ProfileController extends Controller
 {
-    public function edit(Request $request, LoyaltyTierService $loyaltyTierService): View
+    public function edit(Request $request): View
     {
         $user = $request->user();
+        $company = $user->primaryCompany();
         $addresses = $user->addresses()
             ->orderByDesc('is_default')
             ->latest()
@@ -29,13 +30,11 @@ class ProfileController extends Controller
             ->latest()
             ->get();
 
-        $loyaltySummary = $loyaltyTierService->summaryFor($user);
-
         return view('profile.edit', [
             'user' => $user,
+            'company' => $company,
             'addresses' => $addresses,
             'priceAlerts' => $priceAlerts,
-            'loyaltySummary' => $loyaltySummary,
         ]);
     }
 
@@ -52,9 +51,6 @@ class ProfileController extends Controller
         return Redirect::route('profile.edit')->with('status', 'profile-updated');
     }
 
-    /**
-     * Bloqueia exclusão se houver saldo > 0 ou pedido em aberto, e usa SoftDeletes/anonimização preservando histórico financeiro.
-     */
     public function destroy(Request $request): RedirectResponse
     {
         $request->validateWithBag('userDeletion', [
@@ -62,23 +58,25 @@ class ProfileController extends Controller
         ]);
 
         $user = $request->user();
-        $card = $user->virtualCard;
+        $company = $user->primaryCompany();
 
-        if ($card && (float) $card->balance > 0) {
-            throw ValidationException::withMessages([
-                'balance' => 'Não é possível excluir a conta enquanto houver saldo disponível no Cartão Virtual (R$ '.number_format((float) $card->balance, 2, ',', '.').'). Utilize o saldo antes de encerrar a conta.',
-            ])->errorBag('userDeletion');
-        }
+        if ($company) {
+            $wallet = $company->wallet;
+            $activeManagersCount = CompanyUser::where('company_id', $company->id)
+                ->where('company_role', CompanyUser::ROLE_MANAGER)
+                ->where('is_active', true)
+                ->count();
 
-        $goalsReserved = (float) $user->savingsGoals()->sum('current_amount');
-        if ($goalsReserved > 0) {
-            throw ValidationException::withMessages([
-                'goals' => 'Resgate os valores guardados no Cofrinho DigitalCard (R$ '.number_format($goalsReserved, 2, ',', '.').') antes de encerrar sua conta.',
-            ])->errorBag('userDeletion');
+            if ($wallet && (float) $wallet->balance > 0 && $user->isCompanyManager($company) && $activeManagersCount <= 1) {
+                throw ValidationException::withMessages([
+                    'balance' => 'Não é possível excluir o único gestor enquanto a carteira da empresa possuir saldo em créditos ('.number_format((float) $wallet->balance, 2, ',', '.').').',
+                ])->errorBag('userDeletion');
+            }
         }
 
         $hasOpenOrders = $user->orders()
             ->whereIn('status', [
+                Order::STATUS_AWAITING_APPROVAL,
                 Order::STATUS_REQUESTED,
                 Order::STATUS_SEPARATING,
                 Order::STATUS_SHIPPED,
@@ -93,26 +91,24 @@ class ProfileController extends Controller
 
         Auth::logout();
 
-        DB::transaction(function () use ($user, $card) {
+        DB::transaction(function () use ($user, $company): void {
             AuditLog::record(
                 'user.account_deleted',
                 $user,
                 ['email' => $user->email],
                 ['anonymized' => true],
-                $user->id
+                $user->id,
+                $company?->id
             );
 
-            if ($card) {
-                $card->update(['is_active' => false]);
-                $card->delete(); // SoftDelete preserva transações e recargas
-            }
+            $user->companyMemberships()->update(['is_active' => false]);
 
             $user->forceFill([
                 'name' => 'Usuário Removido #'.$user->id,
-                'email' => "deleted+{$user->id}@digitalcard.local",
+                'email' => "deleted+{$user->id}@nexosupri.local",
             ])->save();
 
-            $user->delete(); // SoftDelete
+            $user->delete();
         });
 
         $request->session()->invalidate();

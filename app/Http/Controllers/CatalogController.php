@@ -12,33 +12,37 @@ use App\Models\PriceAlert;
 use App\Models\Product;
 use App\Models\ProductBundle;
 use App\Models\ProductReview;
+use App\Models\User;
 use App\Models\Wishlist;
 use App\Services\CartPricing;
-use App\Services\LoyaltyTierService;
+use App\Services\CatalogSearchService;
 use App\Services\ShippingCalculator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class CatalogController extends Controller
 {
-    public function index(Request $request, ?string $categorySlug = null): View
+    public function index(Request $request, CatalogSearchService $searchService, ?string $categorySlug = null): View
     {
-        $categories = Category::with('children')->whereNull('parent_id')->get();
+        $categories = Category::with('children')->whereNull('parent_id')->orderBy('id')->get();
         $selectedCategory = null;
 
-        $query = Product::with('category')
+        $query = Product::with(['category', 'images'])
             ->withAvg('reviews', 'rating')
             ->withCount('reviews')
             ->where('is_active', true)
             ->where('stock', '>', 0);
 
-        $effectiveSlug = $categorySlug ?: $request->input('category');
+        $effectiveSlug = $request->filled('category')
+            ? trim((string) $request->input('category'))
+            : $categorySlug;
 
         if ($effectiveSlug) {
             $selectedCategory = Category::where('slug', $effectiveSlug)->firstOrFail();
@@ -46,29 +50,29 @@ class CatalogController extends Controller
             $query->whereIn('category_id', $categoryIds);
         }
 
-        if ($search = trim((string) $request->input('q'))) {
-            $escaped = addcslashes($search, '%_\\');
-            $query->where(function ($builder) use ($escaped) {
-                $builder->whereRaw("name LIKE ? ESCAPE '\\'", ["%{$escaped}%"])
-                    ->orWhereRaw("description LIKE ? ESCAPE '\\'", ["%{$escaped}%"]);
-            });
+        $search = trim((string) $request->input('q', ''));
+        if ($search !== '') {
+            $searchService->applySearch($query, $search);
         }
 
-        if ($request->filled('min_price')) {
-            $query->where('price', '>=', (float) $request->input('min_price'));
+        $priceBounds = $searchService->normalizePriceBounds(
+            $request->input('min_price'),
+            $request->input('max_price'),
+        );
+        $effectiveMinPrice = $priceBounds['min'];
+        $effectiveMaxPrice = $priceBounds['max'];
+
+        if ($effectiveMinPrice !== null) {
+            $query->where('price', '>=', $effectiveMinPrice);
         }
 
-        if ($request->filled('max_price')) {
-            $query->where('price', '<=', (float) $request->input('max_price'));
-        }
-
-        if ($request->boolean('cashback')) {
-            $query->where('cashback_percent', '>', 0);
+        if ($effectiveMaxPrice !== null) {
+            $query->where('price', '<=', $effectiveMaxPrice);
         }
 
         if ($request->filled('min_rating')) {
             $minRating = max(1, min(5, (int) $request->input('min_rating')));
-            $query->whereIn('id', function ($sub) use ($minRating) {
+            $query->whereIn('id', function ($sub) use ($minRating): void {
                 $sub->select('product_id')
                     ->from('product_reviews')
                     ->groupBy('product_id')
@@ -80,44 +84,45 @@ class CatalogController extends Controller
             'menor_preco' => $query->orderBy('price')->orderBy('id'),
             'maior_preco' => $query->orderByDesc('price')->orderBy('id'),
             'maior_desconto' => $query->orderByRaw('CASE WHEN compare_at_price > price THEN ((compare_at_price - price) / compare_at_price) ELSE 0 END DESC')->orderBy('id'),
-            'maior_cashback' => $query->orderByDesc('cashback_percent')->orderBy('id'),
             'melhor_avaliados' => $query->orderByDesc('reviews_avg_rating')->orderByDesc('reviews_count')->orderBy('id'),
-            default => $query->orderBy('id'),
+            default => match (true) {
+                $search !== '' => $searchService->applyRelevanceOrder($query, $search),
+                $selectedCategory === null => $searchService->applyInterleavedOrder($query),
+                default => $query->orderBy('id'),
+            },
         };
 
-        $products = $query->paginate(20)->withQueryString();
+        $products = $query->paginate(12)->withQueryString();
 
-        $isHomeStorefront = ! $selectedCategory && ! $request->hasAny(['q', 'min_price', 'max_price', 'sort', 'cashback', 'category', 'min_rating']);
+        $isHomeStorefront = ! $selectedCategory && ! $request->hasAny(['q', 'min_price', 'max_price', 'sort', 'category', 'min_rating']);
 
-        $featuredDeals = collect();
-        $topCashbackProducts = collect();
+        $categoryProductCounts = Cache::remember('catalog_category_counts', 300, function (): array {
+            return Product::query()
+                ->where('is_active', true)
+                ->where('stock', '>', 0)
+                ->selectRaw('category_id, COUNT(*) as total')
+                ->groupBy('category_id')
+                ->pluck('total', 'category_id')
+                ->map(fn ($total): int => (int) $total)
+                ->all();
+        });
+
+        $parentCategoryCounts = [];
+        foreach ($categories as $department) {
+            $totalProducts = (int) ($categoryProductCounts[$department->id] ?? 0);
+            foreach ($department->children as $child) {
+                $totalProducts += (int) ($categoryProductCounts[$child->id] ?? 0);
+            }
+            $parentCategoryCounts[(int) $department->id] = $totalProducts;
+        }
+
         $activeCoupons = collect();
-        $departmentCards = collect();
-        $recentlyViewedProducts = collect();
         $featuredBundles = collect();
-        $promoEndsAt = null;
+        $postKitDiscoveryProducts = collect();
+        $departmentShowcaseTabs = [];
+        $topDealsProducts = collect();
+
         if ($isHomeStorefront) {
-            $featuredDeals = Product::with('category')
-                ->withAvg('reviews', 'rating')
-                ->withCount('reviews')
-                ->where('is_active', true)
-                ->where('stock', '>', 0)
-                ->whereNotNull('compare_at_price')
-                ->orderByRaw('((compare_at_price - price) / compare_at_price) DESC')
-                ->limit(8)
-                ->get();
-
-            $topCashbackProducts = Product::with('category')
-                ->withAvg('reviews', 'rating')
-                ->withCount('reviews')
-                ->where('is_active', true)
-                ->where('stock', '>', 0)
-                ->where('cashback_percent', '>', 0)
-                ->orderByDesc('cashback_percent')
-                ->orderBy('price')
-                ->limit(4)
-                ->get();
-
             $activeCoupons = Coupon::query()
                 ->where('is_active', true)
                 ->where(function ($builder): void {
@@ -127,46 +132,23 @@ class CatalogController extends Controller
                     $builder->whereNull('ends_at')->orWhere('ends_at', '>', now());
                 })
                 ->orderByDesc('value')
-                ->limit(4)
+                ->limit(3)
                 ->get();
-
-            $productCountsByCategory = Product::query()
-                ->where('is_active', true)
-                ->where('stock', '>', 0)
-                ->selectRaw('category_id, COUNT(*) as total')
-                ->groupBy('category_id')
-                ->pluck('total', 'category_id');
-
-            $departmentCards = $categories->map(function (Category $department) use ($productCountsByCategory): array {
-                $totalProducts = (int) ($productCountsByCategory[$department->id] ?? 0);
-                foreach ($department->children as $child) {
-                    $totalProducts += (int) ($productCountsByCategory[$child->id] ?? 0);
-                }
-
-                return [
-                    'name' => $department->name,
-                    'slug' => $department->slug,
-                    'icon' => $department->icon ?: 'package',
-                    'subcategories_count' => $department->children->count(),
-                    'products_count' => $totalProducts,
-                ];
-            });
-
-            $recentlyViewedProducts = $this->resolveRecentlyViewed($request, null, 4);
 
             $featuredBundles = ProductBundle::query()
-                ->with(['items.product.category'])
+                ->with(['items.product.category', 'items.product.images'])
                 ->where('is_active', true)
                 ->orderBy('id')
-                ->limit(4)
+                ->limit(3)
                 ->get();
 
-            // H3(i): Usa o ends_at real de um cupom ativo no banco
-            $promoEndsAt = Coupon::where('is_active', true)
-                ->whereNotNull('ends_at')
-                ->where('ends_at', '>', now())
-                ->orderBy('ends_at')
-                ->value('ends_at');
+            $showcases = $searchService->buildHomeShowcases(
+                $products->pluck('id')->map(fn ($id): int => (int) $id)->all(),
+                $categories,
+            );
+            $postKitDiscoveryProducts = $showcases['postKitDiscoveryProducts'];
+            $departmentShowcaseTabs = $showcases['departmentShowcaseTabs'];
+            $topDealsProducts = $showcases['topDealsProducts'];
         }
 
         $wishlistIds = $this->resolveWishlistIds($request);
@@ -178,28 +160,33 @@ class CatalogController extends Controller
             'products',
             'selectedCategory',
             'isHomeStorefront',
-            'featuredDeals',
-            'topCashbackProducts',
+            'categoryProductCounts',
+            'parentCategoryCounts',
+            'effectiveMinPrice',
+            'effectiveMaxPrice',
             'activeCoupons',
-            'departmentCards',
-            'recentlyViewedProducts',
             'featuredBundles',
-            'promoEndsAt',
+            'postKitDiscoveryProducts',
+            'departmentShowcaseTabs',
+            'topDealsProducts',
             'wishlistIds',
             'checkoutToken',
         ));
     }
 
-    public function show(Request $request, Product $product, ShippingCalculator $shippingCalculator): View
-    {
+    public function show(
+        Request $request,
+        Product $product,
+        ShippingCalculator $shippingCalculator,
+        CatalogSearchService $searchService,
+    ): View {
         abort_unless($product->is_active, 404);
-        $product->load(['category.parent']);
+        $product->load(['category.parent', 'images']);
         $product->loadAvg('reviews', 'rating');
         $product->loadCount('reviews');
 
         $reviews = $product->reviews()->with('user')->latest()->paginate(10);
 
-        // Distribuição real de estrelas calculada via GROUP BY no banco
         $ratingCounts = $product->reviews()
             ->selectRaw('rating, COUNT(*) as total')
             ->groupBy('rating')
@@ -216,12 +203,10 @@ class CatalogController extends Controller
             ];
         }
 
-        // H3(iii): Contagem real de unidades vendidas em pedidos válidos
         $soldUnitsCount = (int) OrderItem::where('product_id', $product->id)
             ->whereHas('order', fn ($q) => $q->whereNotIn('status', [Order::STATUS_CANCELLED, Order::STATUS_RETURNED]))
             ->sum('quantity');
 
-        // H4 + H3(ii): Endereço padrão real do usuário logado (ou sessão) sem fallback fixo de Maceió/Rio Largo
         $defaultAddress = $request->user()
             ? $request->user()->addresses()->where('is_default', true)->first()
             : null;
@@ -229,47 +214,21 @@ class CatalogController extends Controller
         $savedCep = $request->session()->get('shipping_cep') ?: $defaultAddress?->cep;
         $savedAddress = $request->session()->get('shipping_address') ?: ($defaultAddress ? $defaultAddress->formattedLine() : null);
 
-        $loyaltySummary = app(LoyaltyTierService::class)->summaryFor($request->user());
-
         $shippingEstimate = $savedCep
             ? $shippingCalculator->calculate(
                 $savedCep,
                 CartPricing::toCents((float) $product->price),
-                $loyaltySummary['free_shipping_min_cents']
             )
             : null;
 
-        $relatedProducts = Product::with('category')
-            ->withAvg('reviews', 'rating')
-            ->withCount('reviews')
-            ->where('is_active', true)
-            ->where('stock', '>', 0)
-            ->where('id', '!=', $product->id)
-            ->where('category_id', $product->category_id)
-            ->limit(4)
-            ->get();
-
-        if ($relatedProducts->count() < 4) {
-            $extraProducts = Product::with('category')
-                ->withAvg('reviews', 'rating')
-                ->withCount('reviews')
-                ->where('is_active', true)
-                ->where('stock', '>', 0)
-                ->where('id', '!=', $product->id)
-                ->whereNotIn('id', $relatedProducts->pluck('id'))
-                ->orderBy('id')
-                ->limit(4 - $relatedProducts->count())
-                ->get();
-
-            $relatedProducts = $relatedProducts->concat($extraProducts);
-        }
+        $relatedProducts = $searchService->relatedProducts($product, 4);
 
         $wishlistIds = $this->resolveWishlistIds($request);
         $canReview = false;
         $userPriceAlert = null;
 
         if ($request->user()) {
-            $canReview = $this->userHasPurchasedAndReceived($request->user()->id, $product->id);
+            $canReview = $this->userHasPurchasedAndReceived($request->user(), $product->id);
             $userPriceAlert = PriceAlert::query()
                 ->where('user_id', $request->user()->id)
                 ->where('product_id', $product->id)
@@ -302,12 +261,11 @@ class CatalogController extends Controller
             'wishlistIds',
             'canReview',
             'userPriceAlert',
-            'loyaltySummary',
             'checkoutToken',
         ));
     }
 
-    public function suggestions(Request $request): JsonResponse
+    public function suggestions(Request $request, CatalogSearchService $searchService): JsonResponse
     {
         $search = trim((string) $request->input('q', ''));
         if (mb_strlen($search) < 2) {
@@ -317,34 +275,36 @@ class CatalogController extends Controller
             ]);
         }
 
-        $escaped = addcslashes($search, '%_\\');
-
-        $products = Product::query()
-            ->with('category')
+        $productsQuery = Product::query()
+            ->with(['category', 'images'])
+            ->withAvg('reviews', 'rating')
             ->where('is_active', true)
-            ->where('stock', '>', 0)
-            ->where(function ($builder) use ($escaped): void {
-                $builder->whereRaw("name LIKE ? ESCAPE '\\'", ["%{$escaped}%"])
-                    ->orWhereRaw("description LIKE ? ESCAPE '\\'", ["%{$escaped}%"]);
-            })
-            ->orderByDesc('cashback_percent')
+            ->where('stock', '>', 0);
+
+        $searchService->applySearch($productsQuery, $search);
+        $searchService->applyRelevanceOrder($productsQuery, $search);
+
+        $products = $productsQuery
             ->limit(6)
             ->get()
             ->map(fn (Product $item): array => [
                 'id' => $item->id,
+                'sku' => $item->sku,
                 'name' => $item->name,
                 'slug' => $item->slug,
+                'presentation' => $item->presentation ?: $item->unit,
                 'price' => (float) $item->price,
                 'formatted_price' => 'R$ '.number_format((float) $item->price, 2, ',', '.'),
-                'cashback_percent' => (float) $item->cashback_percent,
+                'credits' => number_format((float) $item->price, 2, ',', '.').' créditos',
                 'thumbnail_url' => $item->thumbnail_url,
                 'category_name' => $item->category?->name ?? 'Catálogo',
                 'url' => route('catalog.product', $item->slug),
             ])
             ->values();
 
+        $catLike = '%'.$searchService->escapeLike($search).'%';
         $categories = Category::query()
-            ->whereRaw("name LIKE ? ESCAPE '\\'", ["%{$escaped}%"])
+            ->where('name', 'like', $catLike)
             ->limit(3)
             ->get()
             ->map(fn (Category $cat): array => [
@@ -370,9 +330,9 @@ class CatalogController extends Controller
             'comment' => ['nullable', 'string', 'max:1000'],
         ]);
 
-        if (! $this->userHasPurchasedAndReceived($request->user()->id, $product->id)) {
+        if (! $this->userHasPurchasedAndReceived($request->user(), $product->id)) {
             throw ValidationException::withMessages([
-                'rating' => 'Apenas clientes que compraram e já receberam este produto ("Produto entregue") podem enviar uma avaliação verificada.',
+                'rating' => 'Apenas empresas que receberam este item ("Produto entregue") podem enviar avaliação verificada.',
             ]);
         }
 
@@ -388,13 +348,13 @@ class CatalogController extends Controller
             ]
         );
 
-        return back()->with('success', 'Avaliação de compra verificada registrada com sucesso!');
+        return back()->with('success', 'Avaliação corporativa registrada com sucesso!');
     }
 
     public function wishlistIndex(Request $request): View
     {
         $wishlistIds = $this->resolveWishlistIds($request);
-        $products = Product::with('category')
+        $products = Product::with(['category', 'images'])
             ->withAvg('reviews', 'rating')
             ->withCount('reviews')
             ->whereIn('id', $wishlistIds)
@@ -416,7 +376,7 @@ class CatalogController extends Controller
                 Wishlist::where('user_id', $request->user()->id)->where('product_id', $product->id)->delete();
             }
 
-            return back()->with('success', "{$product->name} removido da sua Lista de Desejos.");
+            return back()->with('success', "{$product->name} removido dos itens homologados.");
         }
 
         $wishlist[] = $product->id;
@@ -430,14 +390,14 @@ class CatalogController extends Controller
             ]);
         }
 
-        return back()->with('success', "{$product->name} salvo na sua Lista de Desejos!");
+        return back()->with('success', "{$product->name} salvo nos itens homologados da empresa!");
     }
 
     public function moveWishlistToCart(Request $request): RedirectResponse
     {
         $wishlistIds = $this->resolveWishlistIds($request);
         if ($wishlistIds === []) {
-            return back()->with('error', 'Sua lista de desejos está vazia.');
+            return back()->with('error', 'Sua lista de itens homologados está vazia.');
         }
 
         $products = Product::query()
@@ -447,7 +407,7 @@ class CatalogController extends Controller
             ->get();
 
         if ($products->isEmpty()) {
-            return back()->with('error', 'Nenhum produto favoritado está disponível em estoque no momento.');
+            return back()->with('error', 'Nenhum item homologado está disponível em estoque no momento.');
         }
 
         $cart = $request->session()->get('cart', []);
@@ -477,7 +437,7 @@ class CatalogController extends Controller
 
         return redirect()->route('cart.index')->with(
             'success',
-            "{$movedCount} ".($movedCount === 1 ? 'favorito adicionado' : 'favoritos adicionados').' ao seu carrinho!'
+            "{$movedCount} ".($movedCount === 1 ? 'item adicionado' : 'itens adicionados').' ao carrinho!'
         );
     }
 
@@ -501,6 +461,7 @@ class CatalogController extends Controller
         $request->session()->put('shipping_address', $fullAddress);
 
         if ($request->user()) {
+            $company = $request->user()->primaryCompany();
             $request->user()->addresses()->update(['is_default' => false]);
             Address::updateOrCreate(
                 [
@@ -510,8 +471,10 @@ class CatalogController extends Controller
                     'number' => $number,
                 ],
                 [
-                    'label' => 'Principal',
-                    'recipient_name' => $request->user()->name,
+                    'company_id' => $company?->id,
+                    'type' => 'delivery',
+                    'label' => 'Unidade Principal',
+                    'recipient_name' => $company?->trade_name ?: $request->user()->name,
                     'complement' => $validated['complement'] ?? null,
                     'neighborhood' => $viaCep['neighborhood'],
                     'city' => $viaCep['city'],
@@ -521,7 +484,7 @@ class CatalogController extends Controller
             );
         }
 
-        return back()->with('success', 'Endereço e CEP de entrega atualizados com cálculo de frete!');
+        return back()->with('success', 'Endereço e CEP de entrega atualizados!');
     }
 
     public function quoteShipping(Request $request, ShippingCalculator $shippingCalculator): JsonResponse
@@ -531,12 +494,10 @@ class CatalogController extends Controller
             'total_cents' => ['nullable', 'integer', 'min:0'],
         ]);
 
-        $loyaltySummary = app(LoyaltyTierService::class)->summaryFor($request->user());
         $address = $shippingCalculator->lookupCep($validated['cep']);
         $quote = $shippingCalculator->calculate(
             $validated['cep'],
             (int) ($validated['total_cents'] ?? 0),
-            $loyaltySummary['free_shipping_min_cents']
         );
 
         return response()->json([
@@ -553,6 +514,7 @@ class CatalogController extends Controller
         $xml = '<?xml version="1.0" encoding="UTF-8"?>'."\n";
         $xml .= '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'."\n";
         $xml .= '  <url><loc>'.e(route('catalog.index')).'</loc><changefreq>daily</changefreq><priority>1.0</priority></url>'."\n";
+        $xml .= '  <url><loc>'.e(route('plans.index')).'</loc><changefreq>weekly</changefreq><priority>0.9</priority></url>'."\n";
 
         foreach ($categories as $category) {
             $xml .= '  <url><loc>'.e(route('catalog.category', $category->slug)).'</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>'."\n";
@@ -584,9 +546,17 @@ class CatalogController extends Controller
         return array_map('intval', $request->session()->get('wishlist', []));
     }
 
-    private function userHasPurchasedAndReceived(int $userId, int $productId): bool
+    private function userHasPurchasedAndReceived(User $user, int $productId): bool
     {
-        return Order::where('user_id', $userId)
+        $company = $user->primaryCompany();
+
+        return Order::query()
+            ->where(function ($q) use ($user, $company): void {
+                $q->where('user_id', $user->id);
+                if ($company) {
+                    $q->orWhere('company_id', $company->id);
+                }
+            })
             ->where('status', Order::STATUS_DELIVERED)
             ->whereHas('items', fn ($q) => $q->where('product_id', $productId))
             ->exists();
@@ -619,7 +589,7 @@ class CatalogController extends Controller
             return collect();
         }
 
-        $productsById = Product::with('category')
+        $productsById = Product::with(['category', 'images'])
             ->withAvg('reviews', 'rating')
             ->withCount('reviews')
             ->where('is_active', true)

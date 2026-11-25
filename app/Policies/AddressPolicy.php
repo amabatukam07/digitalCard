@@ -9,6 +9,10 @@ class AddressPolicy
 {
     public function manage(User $user, Address $address): bool
     {
-        return (int) $address->user_id === (int) $user->id;
+        if ((int) $address->user_id === (int) $user->id) {
+            return true;
+        }
+
+        return $address->company_id !== null && $user->isCompanyManager($address->company);
     }
 }

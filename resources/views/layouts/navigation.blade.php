@@ -20,13 +20,13 @@
                 <div class="flex items-center gap-3 lg:gap-4 shrink-0 min-w-0">
                     <a href="{{ route('catalog.index') }}" class="flex items-center gap-2.5 group focus:outline-none shrink-0">
                         <div class="h-9 w-9 rounded-md bg-paper text-ink flex items-center justify-center font-serif text-lg shrink-0">
-                            DC
+                            NS
                         </div>
                         <div class="flex flex-col">
                             <span class="font-serif text-paper text-xl leading-none">
-                                DigitalCard
+                                NexoSupri
                             </span>
-                            <span class="hidden xl:block text-xs text-slate-400 mt-0.5">Cartão virtual &amp; cashback</span>
+                            <span class="hidden xl:block text-xs text-slate-400 mt-0.5">Cartão corporativo &amp; suprimentos</span>
                         </div>
                     </a>
 
@@ -36,8 +36,8 @@
                             <x-icon name="truck" class="size-4 text-slate-300" />
                         </span>
                         <div class="truncate min-w-0">
-                            <span class="block text-xs text-slate-400 leading-none truncate">Enviar para</span>
-                            <span class="block text-xs font-medium text-paper truncate mt-0.5 tabular-nums">{{ $savedCep ? 'CEP '.$savedCep : 'Informe seu CEP' }}</span>
+                            <span class="block text-xs text-slate-400 leading-none truncate">Entregar em</span>
+                            <span class="block text-xs font-medium text-paper truncate mt-0.5 tabular-nums">{{ $savedCep ? 'CEP '.$savedCep : 'Informe o CEP' }}</span>
                         </div>
                     </button>
                 </div>
@@ -112,9 +112,9 @@
                     <form action="{{ route('catalog.index') }}" method="GET"
                           @submit="submitActive($event)"
                           class="flex items-stretch w-full min-w-0 rounded-md overflow-hidden bg-paper text-ink border border-slate-700 focus-within:ring-2 focus-within:ring-accent-500">
-                        <select name="category" aria-label="Departamento"
-                                class="hidden xl:block max-w-[175px] truncate bg-paper hover:bg-slate-200 border-0 border-r border-line text-xs font-medium text-ink py-2.5 pl-3 pr-7 focus:ring-0 cursor-pointer transition shrink-0">
-                            <option value="">Todos</option>
+                        <select name="category" aria-label="Categoria"
+                                class="hidden xl:block max-w-[185px] truncate bg-paper hover:bg-slate-200 border-0 border-r border-line text-xs font-medium text-ink py-2.5 pl-3 pr-7 focus:ring-0 cursor-pointer transition shrink-0">
+                            <option value="">Todas categorias</option>
                             @foreach($navCategories as $navCat)
                                 <option value="{{ $navCat['slug'] }}" {{ request('category') === $navCat['slug'] ? 'selected' : '' }}>
                                     {{ $navCat['name'] }}
@@ -129,11 +129,11 @@
                                @keydown.arrow-up.prevent="moveUp()"
                                @keydown.escape="open = false"
                                autocorrect="off" autocapitalize="off" spellcheck="false" autocomplete="off" enterkeyhint="search"
-                               aria-label="Buscar produtos, marcas ou categorias"
-                               placeholder="Buscar produtos, marcas ou categorias..."
+                               aria-label="Buscar insumos, SKU ou categorias"
+                               placeholder="Buscar insumos, SKU, papel A4, café, limpeza..."
                                class="flex-1 min-w-0 w-full bg-paper border-0 text-sm text-ink placeholder-slate-500 py-2 px-3.5 focus:ring-0">
 
-                        <button type="submit" aria-label="Buscar produtos"
+                        <button type="submit" aria-label="Buscar insumos"
                                 class="bg-paper hover:bg-slate-200 text-ink border-l border-line px-3.5 flex items-center justify-center transition shrink-0">
                             <x-icon name="search" class="size-4" />
                         </button>
@@ -161,7 +161,7 @@
 
                         <template x-if="products.length > 0">
                             <div class="p-2 space-y-1 max-h-80 overflow-y-auto">
-                                <span class="px-2.5 py-0.5 block text-[11px] font-semibold text-slate-500">Produtos em destaque</span>
+                                <span class="px-2.5 py-0.5 block text-[11px] font-semibold text-slate-500">Insumos encontrados</span>
                                 <template x-for="(item, pIdx) in products" :key="'prod-' + item.id">
                                     <a :href="item.url"
                                        :class="activeIndex === (categories.length + pIdx) ? 'bg-paper' : 'hover:bg-paper'"
@@ -170,13 +170,11 @@
                                              class="h-10 w-10 rounded border border-line bg-white object-contain p-0.5 shrink-0">
                                         <div class="flex-1 min-w-0">
                                             <p class="text-xs font-medium text-ink truncate" x-text="item.name"></p>
-                                            <p class="text-[11px] text-slate-500 truncate" x-text="item.category_name"></p>
+                                            <p class="text-[11px] text-slate-500 truncate" x-text="item.category_name + ' · ' + item.presentation"></p>
                                         </div>
                                         <div class="text-right shrink-0">
                                             <span class="font-mono text-xs font-semibold text-ink tabular-nums block" x-text="item.formatted_price"></span>
-                                            <span x-show="item.cashback_percent > 0"
-                                                  class="text-[11px] font-medium text-money-600 tabular-nums"
-                                                  x-text="'+' + item.cashback_percent + '% cashback'"></span>
+                                            <span class="text-[11px] text-slate-500 tabular-nums" x-text="item.credits"></span>
                                         </div>
                                     </a>
                                 </template>
@@ -185,7 +183,7 @@
 
                         <template x-if="!loading && totalItems === 0 && query.trim().length >= 2">
                             <div class="px-4 py-4 text-center text-xs text-slate-500">
-                                Nenhum produto encontrado para "<span class="font-medium text-ink" x-text="query"></span>".
+                                Nenhum insumo encontrado para "<span class="font-medium text-ink" x-text="query"></span>".
                             </div>
                         </template>
                     </div>
@@ -193,11 +191,12 @@
 
                 <div class="hidden md:flex items-center gap-1.5 lg:gap-2 shrink-0">
                     @auth
-                        @if(auth()->user()->virtualCard)
+                        @if($currentCompany && $currentWallet)
                             <div class="relative shrink-0" x-data="{ walletOpen: false }" @click.outside="walletOpen = false">
                                 <div class="flex items-center rounded-md bg-slate-900 border border-slate-700 hover:border-slate-500 transition">
                                     <button @click="showNavBalance = !showNavBalance" type="button"
-                                            aria-label="Mostrar ou ocultar saldo"
+                                            data-compact-btn
+                                            aria-label="Mostrar ou ocultar saldo de créditos"
                                             class="pl-2.5 pr-1 py-2 text-slate-300 hover:text-paper transition">
                                         <span x-show="showNavBalance"><x-icon name="eye" class="size-4" /></span>
                                         <span x-show="!showNavBalance" x-cloak><x-icon name="eye-off" class="size-4 text-slate-400" /></span>
@@ -206,10 +205,10 @@
                                     <button @click="walletOpen = !walletOpen" type="button"
                                             class="flex items-center gap-1.5 pr-2.5 py-1.5 text-left whitespace-nowrap">
                                         <div>
-                                            <span class="hidden 2xl:block text-xs text-slate-400 leading-none">Saldo</span>
+                                            <span class="hidden 2xl:block text-[11px] text-slate-400 leading-none">Créditos</span>
                                             <span class="font-mono tabular-nums font-semibold text-xs text-money-400 block">
-                                                <span x-show="showNavBalance">R$ {{ number_format((float) auth()->user()->virtualCard->balance, 2, ',', '.') }}</span>
-                                                <span x-show="!showNavBalance" x-cloak>R$ •••••</span>
+                                                <span x-show="showNavBalance">{{ number_format((float) $currentWallet->balance, 2, ',', '.') }} créd.</span>
+                                                <span x-show="!showNavBalance" x-cloak>•••••</span>
                                             </span>
                                         </div>
                                         <x-icon name="chevron-down" class="size-3.5 text-slate-400" />
@@ -218,34 +217,34 @@
 
                                 <div x-show="walletOpen" x-cloak
                                      x-transition
-                                     class="absolute right-0 mt-2 w-72 rounded-lg bg-surface text-ink p-4 shadow-float border border-line z-50">
-                                    <div class="flex justify-between items-center pb-2.5 mb-3 border-b border-line">
-                                        <div class="flex items-center gap-1.5">
-                                            <span class="w-2 h-2 rounded-full {{ auth()->user()->virtualCard->is_active ? 'bg-money-600' : 'bg-danger-600' }}"></span>
-                                            <span class="text-xs font-medium text-slate-700">Cartão virtual</span>
+                                     class="absolute right-0 mt-2 w-80 rounded-lg bg-surface text-ink p-4 shadow-float border border-line z-50">
+                                    <div class="flex justify-between items-center pb-2.5 mb-3 border-b border-line gap-2">
+                                        <div class="flex items-center gap-1.5 min-w-0">
+                                            <span class="w-2 h-2 rounded-full shrink-0 {{ $currentWallet->is_active ? 'bg-money-600' : 'bg-danger-600' }}"></span>
+                                            <span class="text-xs font-semibold text-ink truncate">{{ $currentCompany->trade_name }}</span>
                                         </div>
-                                        <span class="text-xs font-mono tabular-nums text-slate-500">{{ auth()->user()->virtualCard->masked_number }}</span>
+                                        <span class="text-[11px] font-mono tabular-nums text-slate-500 shrink-0">{{ $currentCompany->cnpj }}</span>
                                     </div>
 
                                     <div class="pb-3 mb-3 border-b border-line">
                                         <div class="flex justify-between items-center text-xs text-slate-500">
-                                            <span>Saldo disponível</span>
-                                            <span class="text-money-600 tabular-nums">Cashback: R$ {{ number_format((float) auth()->user()->virtualCard->cashback_earned, 2, ',', '.') }}</span>
+                                            <span>Saldo disponível (Modelo A)</span>
+                                            <span class="text-slate-600 tabular-nums">1 créd. = R$ 1,00</span>
                                         </div>
                                         <p class="font-mono text-xl font-semibold tabular-nums text-money-600 mt-1">
-                                            <span x-show="showNavBalance">R$ {{ number_format((float) auth()->user()->virtualCard->balance, 2, ',', '.') }}</span>
-                                            <span x-show="!showNavBalance" x-cloak>R$ ••••••</span>
+                                            <span x-show="showNavBalance">{{ number_format((float) $currentWallet->balance, 2, ',', '.') }} créditos</span>
+                                            <span x-show="!showNavBalance" x-cloak>••••••</span>
                                         </p>
                                     </div>
 
                                     <div class="grid grid-cols-2 gap-2 text-xs">
-                                        <a href="{{ route('card.show') }}"
+                                        <a href="{{ route('wallet.show') }}"
                                            class="text-center bg-ink hover:bg-slate-800 text-paper font-medium py-2 px-3 rounded-md transition">
-                                            Recarregar PIX
+                                            Contratar créditos
                                         </a>
-                                        <a href="{{ route('card.show') }}"
+                                        <a href="{{ route('company.dashboard') }}"
                                            class="text-center border border-line bg-surface hover:border-ink text-ink font-medium py-2 px-3 rounded-md transition">
-                                            Ver extrato
+                                            Painel empresa
                                         </a>
                                     </div>
                                 </div>
@@ -311,9 +310,9 @@
                     @endauth
 
                     <a href="{{ route('compare.index') }}"
-                       title="Comparar produtos"
-                       aria-label="Comparar produtos"
-                       class="relative inline-flex items-center justify-center h-9 w-9 rounded-md text-slate-300 hover:text-paper hover:bg-slate-800 transition shrink-0">
+                       title="Comparar insumos"
+                       aria-label="Comparar insumos"
+                       class="relative hidden lg:inline-flex items-center justify-center h-9 w-9 rounded-md text-slate-300 hover:text-paper hover:bg-slate-800 transition shrink-0">
                         <x-icon name="scale" class="size-[18px]" />
                         @if(($compareCount ?? 0) > 0)
                             <span class="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-accent-500 text-paper text-xs font-semibold tabular-nums flex items-center justify-center">
@@ -323,9 +322,9 @@
                     </a>
 
                     <a href="{{ route('wishlist.index') }}"
-                       title="Lista de desejos"
-                       aria-label="Lista de desejos"
-                       class="relative inline-flex items-center justify-center h-9 w-9 rounded-md text-slate-300 hover:text-paper hover:bg-slate-800 transition shrink-0">
+                       title="Itens homologados"
+                       aria-label="Itens homologados"
+                       class="relative hidden lg:inline-flex items-center justify-center h-9 w-9 rounded-md text-slate-300 hover:text-paper hover:bg-slate-800 transition shrink-0">
                         <x-icon name="heart" class="size-[18px]" />
                         @if($wishlistCount > 0)
                             <span class="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-paper text-ink text-xs font-semibold tabular-nums flex items-center justify-center">
@@ -335,7 +334,7 @@
                     </a>
 
                     <button @click="cartDrawerOpen = true" type="button"
-                            aria-label="Abrir carrinho de compras"
+                            aria-label="Abrir carrinho de pedido"
                             class="h-9 flex items-center gap-2 px-3 rounded-md bg-paper text-ink hover:bg-slate-200 transition shrink-0">
                         <div class="relative">
                             <x-icon name="shopping-cart" class="size-4 text-ink" />
@@ -365,26 +364,27 @@
 
                             <div x-show="userMenu" x-cloak
                                  x-transition
-                                 class="absolute right-0 mt-2 w-60 rounded-lg bg-surface text-ink shadow-float border border-line py-2 z-50">
+                                 class="absolute right-0 mt-2 w-64 rounded-lg bg-surface text-ink shadow-float border border-line py-2 z-50">
                                 <div class="px-4 py-2.5 border-b border-line">
                                     <p class="text-xs font-semibold text-ink truncate">{{ auth()->user()->name }}</p>
                                     <p class="text-xs text-slate-500 truncate">{{ auth()->user()->email }}</p>
+                                    <span class="inline-block mt-1 text-[11px] font-medium text-accent-700">{{ auth()->user()->roleEnum()->label() }}</span>
                                 </div>
 
                                 @can('admin')
                                     <div class="py-1 border-b border-line">
-                                        <span class="px-4 py-1 block text-xs font-medium text-slate-500">Administração</span>
+                                        <span class="px-4 py-1 block text-xs font-medium text-slate-500">Backoffice NexoSupri</span>
                                         <a href="{{ route('admin.dashboard') }}" class="flex items-center justify-between px-4 py-2 text-xs font-medium text-ink hover:bg-slate-100">
-                                            <span>Visão geral</span>
+                                            <span>Painel administrativo</span>
                                         </a>
-                                        <a href="{{ route('admin.recharges.index') }}" class="flex items-center justify-between px-4 py-2 text-xs font-medium text-ink hover:bg-slate-100">
-                                            <span>Recargas PIX</span>
-                                            @if($adminPendingRechargesCount > 0)
-                                                <span class="px-1.5 py-0.5 rounded-full text-xs tabular-nums bg-danger-600 text-white font-semibold">{{ $adminPendingRechargesCount }}</span>
+                                        <a href="{{ route('admin.payments.index') }}" class="flex items-center justify-between px-4 py-2 text-xs font-medium text-ink hover:bg-slate-100">
+                                            <span>Pagamentos &amp; Créditos</span>
+                                            @if($adminPendingPaymentsCount > 0)
+                                                <span class="px-1.5 py-0.5 rounded-full text-xs tabular-nums bg-danger-600 text-white font-semibold">{{ $adminPendingPaymentsCount }}</span>
                                             @endif
                                         </a>
                                         <a href="{{ route('admin.orders.index') }}" class="flex items-center justify-between px-4 py-2 text-xs font-medium text-ink hover:bg-slate-100">
-                                            <span>Pedidos</span>
+                                            <span>Pedidos B2B</span>
                                             @if($adminPendingOrdersCount > 0)
                                                 <span class="px-1.5 py-0.5 rounded-full text-xs tabular-nums bg-ink text-paper font-semibold">{{ $adminPendingOrdersCount }}</span>
                                             @endif
@@ -392,31 +392,36 @@
                                     </div>
                                 @endcan
 
-                                <div class="py-1">
-                                    <a href="{{ route('card.show') }}" class="flex items-center justify-between px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100">
-                                        <span>Meu cartão virtual</span>
-                                        <span class="font-mono tabular-nums text-xs font-semibold text-money-600">R$ {{ number_format((float) (auth()->user()->virtualCard->balance ?? 0), 2, ',', '.') }}</span>
-                                    </a>
-                                    <a href="{{ route('orders.index') }}" class="block px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100">
-                                        Meus pedidos
-                                    </a>
+                                @if($currentCompany)
+                                    <div class="py-1">
+                                        <a href="{{ route('company.dashboard') }}" class="flex items-center justify-between px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100">
+                                            <span>Painel da Empresa</span>
+                                            @if(($pendingCompanyApprovalsCount ?? 0) > 0)
+                                                <span class="px-1.5 py-0.5 rounded-full text-xs tabular-nums bg-accent-600 text-paper font-semibold">{{ $pendingCompanyApprovalsCount }}</span>
+                                            @endif
+                                        </a>
+                                        <a href="{{ route('wallet.show') }}" class="flex items-center justify-between px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100">
+                                            <span>Carteira de Créditos</span>
+                                            <span class="font-mono tabular-nums text-xs font-semibold text-money-600">{{ number_format((float) ($currentWallet->balance ?? 0), 0, ',', '.') }} cr.</span>
+                                        </a>
+                                        <a href="{{ route('orders.index') }}" class="block px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100">
+                                            Pedidos da empresa
+                                        </a>
+                                    </div>
+                                @endif
+
+                                <div class="py-1 border-t border-line">
                                     <a href="{{ route('cart.index') }}" class="flex items-center justify-between px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100">
-                                        <span>Meu carrinho</span>
+                                        <span>Carrinho de pedido</span>
                                         @if($cartItemCount > 0)
                                             <span class="px-1.5 py-0.5 rounded-full text-xs tabular-nums bg-ink text-paper font-semibold">{{ $cartItemCount }}</span>
                                         @endif
                                     </a>
-                                    <a href="{{ route('compare.index') }}" class="flex items-center justify-between px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100">
-                                        <span>Comparador</span>
-                                        @if(($compareCount ?? 0) > 0)
-                                            <span class="px-1.5 py-0.5 rounded-full text-xs tabular-nums bg-ink text-paper font-semibold">{{ $compareCount }}</span>
-                                        @endif
-                                    </a>
                                     <a href="{{ route('wishlist.index') }}" class="block px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100">
-                                        Favoritos ({{ $wishlistCount }})
+                                        Itens homologados ({{ $wishlistCount }})
                                     </a>
                                     <a href="{{ route('profile.edit') }}" class="block px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100">
-                                        Dados da conta
+                                        Meus dados &amp; Endereços
                                     </a>
                                 </div>
 
@@ -437,7 +442,7 @@
                             </a>
                             <a href="{{ route('register') }}"
                                class="bg-paper hover:bg-slate-200 text-ink text-xs font-medium px-3 py-2 rounded-md transition whitespace-nowrap">
-                                Criar conta
+                                Cadastrar empresa
                             </a>
                         </div>
                     @endauth
@@ -478,7 +483,7 @@
             <div class="md:hidden pb-3">
                 <form action="{{ route('catalog.index') }}" method="GET" class="flex rounded-md overflow-hidden bg-paper text-ink min-w-0">
                     <input type="text" name="q" value="{{ request('q') }}"
-                           placeholder="Buscar produtos..."
+                           placeholder="Buscar insumos, SKU ou categorias..."
                            class="flex-1 min-w-0 bg-paper border-0 text-xs text-ink py-2.5 px-3 focus:ring-0">
                     <button type="submit" aria-label="Buscar" class="bg-paper text-ink border-l border-line px-3.5 flex items-center justify-center shrink-0">
                         <x-icon name="search" class="size-4" />
@@ -495,27 +500,27 @@
                     <button @click="deptMenuOpen = !deptMenuOpen" type="button"
                             class="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-paper font-medium transition">
                         <x-icon name="menu" class="size-3.5" />
-                        <span>Departamentos</span>
+                        <span>Categorias</span>
                         <x-icon name="chevron-down" class="size-3 text-slate-400" />
                     </button>
 
                     <div x-show="deptMenuOpen" x-cloak
                          x-transition
-                         class="absolute left-0 top-full mt-1.5 w-[min(680px,calc(100vw-2rem))] rounded-lg bg-surface text-ink shadow-float border border-line p-5 z-50 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 whitespace-normal">
+                         class="absolute left-0 top-full mt-1.5 w-[min(760px,calc(100vw-2rem))] rounded-lg bg-surface text-ink shadow-float border border-line p-5 z-50 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 whitespace-normal">
                         @foreach($navCategories as $parentCat)
                             <div class="space-y-1.5">
                                 <a href="{{ route('catalog.category', $parentCat['slug']) }}"
-                                   class="font-semibold text-xs text-ink hover:underline flex items-center justify-between border-b border-line pb-1">
+                                   class="font-semibold text-xs text-ink hover:text-accent-600 flex items-center justify-between border-b border-line pb-1">
                                     <span>{{ $parentCat['name'] }}</span>
                                     <x-icon name="chevron-right" class="size-3.5 text-slate-400" />
                                 </a>
                                 @if(! empty($parentCat['children']))
-                                    <ul class="space-y-1 pl-1">
-                                        @foreach($parentCat['children'] as $subCat)
+                                    <ul class="space-y-0.5 pt-0.5">
+                                        @foreach($parentCat['children'] as $childCat)
                                             <li>
-                                                <a href="{{ route('catalog.category', $subCat['slug']) }}"
-                                                   class="text-xs text-slate-600 hover:text-ink block py-0.5">
-                                                    {{ $subCat['name'] }}
+                                                <a href="{{ route('catalog.category', $childCat['slug']) }}"
+                                                   class="block py-0.5 text-[11px] text-slate-600 hover:text-ink hover:underline">
+                                                    {{ $childCat['name'] }}
                                                 </a>
                                             </li>
                                         @endforeach
@@ -526,25 +531,20 @@
                     </div>
                 </div>
 
-                <div class="flex items-center gap-1 sm:gap-2 overflow-x-auto no-scrollbar min-w-0">
-                    <a href="{{ route('catalog.index', ['sort' => 'maior_desconto']) }}"
-                       class="px-2.5 py-1 rounded-md font-medium hover:text-paper hover:bg-slate-800 transition shrink-0 {{ request('sort') === 'maior_desconto' ? 'text-accent-400 font-semibold' : 'text-slate-300' }}">
-                        Em oferta
-                    </a>
-
-                    <a href="{{ route('catalog.index', ['cashback' => 1]) }}"
-                       class="px-2.5 py-1 rounded-md font-medium text-money-400 hover:bg-slate-800 transition shrink-0">
-                        Cashback
+                <div class="flex items-center gap-0.5 lg:gap-1 overflow-x-auto no-scrollbar nav-scroll-fade pr-6 xl:pr-0 min-w-0">
+                    <a href="{{ route('plans.index') }}"
+                       class="px-2 py-1 rounded-md font-medium hover:text-paper hover:bg-slate-800 transition shrink-0 {{ request()->routeIs('plans.*') ? 'text-accent-400 font-semibold' : 'text-accent-300' }}">
+                        Planos (Modelo A)
                     </a>
 
                     <a href="{{ route('bundles.index') }}"
-                       class="px-2.5 py-1 rounded-md font-medium hover:text-paper hover:bg-slate-800 transition shrink-0 {{ request()->routeIs('bundles.*') ? 'text-accent-400 font-semibold' : 'text-slate-300' }}">
-                        Kits &amp; Setups
+                       class="px-2 py-1 rounded-md font-medium hover:text-paper hover:bg-slate-800 transition shrink-0 {{ request()->routeIs('bundles.*') ? 'text-accent-400 font-semibold' : 'text-slate-300' }}">
+                        Kits de Abastecimento
                     </a>
 
                     @foreach($navCategories as $topCat)
                         <a href="{{ route('catalog.category', $topCat['slug']) }}"
-                           class="px-2.5 py-1 rounded-md font-medium hover:text-paper hover:bg-slate-800 transition shrink-0 {{ request()->is('categoria/'.$topCat['slug']) ? 'text-accent-400 font-semibold' : 'text-slate-300' }}">
+                           class="px-2 py-1 rounded-md font-medium hover:text-paper hover:bg-slate-800 transition shrink-0 {{ request()->is('categoria/'.$topCat['slug']) ? 'text-accent-400 font-semibold' : 'text-slate-300' }}">
                             {{ $topCat['name'] }}
                         </a>
                     @endforeach
@@ -554,11 +554,11 @@
             <div class="hidden xl:flex items-center gap-3 whitespace-nowrap shrink-0">
                 @auth
                     @can('admin')
-                        <a href="{{ route('admin.recharges.index') }}"
+                        <a href="{{ route('admin.payments.index') }}"
                            class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-800 text-slate-200 font-medium hover:bg-slate-700 transition">
-                            <span>Recargas</span>
-                            @if($adminPendingRechargesCount > 0)
-                                <span class="px-1.5 py-0.5 rounded-full bg-danger-600 text-white text-xs font-semibold tabular-nums">{{ $adminPendingRechargesCount }}</span>
+                            <span>Pagamentos</span>
+                            @if($adminPendingPaymentsCount > 0)
+                                <span class="px-1.5 py-0.5 rounded-full bg-danger-600 text-white text-xs font-semibold tabular-nums">{{ $adminPendingPaymentsCount }}</span>
                             @endif
                         </a>
                         <a href="{{ route('admin.orders.index') }}"
@@ -568,13 +568,17 @@
                                 <span class="px-1.5 py-0.5 rounded-full bg-slate-600 text-white text-xs font-semibold tabular-nums">{{ $adminPendingOrdersCount }}</span>
                             @endif
                         </a>
-                    @else
-                        <a href="{{ route('card.show') }}" class="text-slate-300 hover:text-paper font-medium transition">
-                            Meu cartão
+                    @elseif($currentCompany)
+                        <a href="{{ route('company.dashboard') }}" class="text-slate-300 hover:text-paper font-medium transition">
+                            Minha empresa
+                        </a>
+                        <span class="text-slate-700">·</span>
+                        <a href="{{ route('wallet.show') }}" class="text-slate-300 hover:text-paper font-medium transition">
+                            Carteira de créditos
                         </a>
                         <span class="text-slate-700">·</span>
                         <a href="{{ route('orders.index') }}" class="text-slate-300 hover:text-paper font-medium transition">
-                            Meus pedidos
+                            Pedidos
                         </a>
                     @endcan
                 @endauth
@@ -584,16 +588,16 @@
 
     <div x-show="mobileMenuOpen" x-cloak class="header-dark-bar md:hidden bg-ink border-b border-slate-800 px-4 pt-3 pb-6 space-y-3 text-slate-200">
         @auth
-            @if(auth()->user()->virtualCard)
+            @if($currentCompany && $currentWallet)
                 <div class="p-3.5 rounded-md bg-slate-900 border border-slate-800 flex items-center justify-between">
                     <div>
-                        <span class="text-xs text-slate-400 block">Saldo disponível</span>
+                        <span class="text-xs text-slate-400 block">{{ $currentCompany->trade_name }}</span>
                         <span class="font-mono tabular-nums text-lg font-semibold text-money-400">
-                            R$ {{ number_format((float) auth()->user()->virtualCard->balance, 2, ',', '.') }}
+                            {{ number_format((float) $currentWallet->balance, 2, ',', '.') }} créd.
                         </span>
                     </div>
-                    <a href="{{ route('card.show') }}" class="bg-paper text-ink font-medium text-xs px-3 py-2 rounded-md">
-                        Recarregar
+                    <a href="{{ route('wallet.show') }}" class="bg-paper text-ink font-medium text-xs px-3 py-2 rounded-md">
+                        Contratar
                     </a>
                 </div>
             @endif
@@ -601,18 +605,26 @@
 
         <div class="space-y-1">
             <a href="{{ route('catalog.index') }}" class="block px-3 py-2 rounded-md text-sm font-medium text-paper hover:bg-slate-800">Catálogo</a>
-            <a href="{{ route('bundles.index') }}" class="block px-3 py-2 rounded-md text-sm text-slate-300 hover:bg-slate-800">Kits &amp; Setups</a>
+            <a href="{{ route('plans.index') }}" class="block px-3 py-2 rounded-md text-sm text-accent-300 hover:bg-slate-800">Planos Comerciais</a>
+            <a href="{{ route('bundles.index') }}" class="block px-3 py-2 rounded-md text-sm text-slate-300 hover:bg-slate-800">Kits de Abastecimento</a>
             <a href="{{ route('compare.index') }}" class="block px-3 py-2 rounded-md text-sm text-slate-300 hover:bg-slate-800">Comparador ({{ $compareCount ?? 0 }})</a>
-            <a href="{{ route('wishlist.index') }}" class="block px-3 py-2 rounded-md text-sm text-slate-300 hover:bg-slate-800">Favoritos ({{ $wishlistCount }})</a>
+            <a href="{{ route('wishlist.index') }}" class="block px-3 py-2 rounded-md text-sm text-slate-300 hover:bg-slate-800">Itens homologados ({{ $wishlistCount }})</a>
             <a href="{{ route('cart.index') }}" class="block px-3 py-2 rounded-md text-sm text-slate-300 hover:bg-slate-800">Carrinho ({{ $cartItemCount }})</a>
+            <button type="button" @click="mobileMenuOpen = false; cepModalOpen = true" class="w-full text-left flex items-center gap-2 px-3 py-2 rounded-md text-sm text-slate-300 hover:bg-slate-800">
+                <x-icon name="truck" class="size-4 text-slate-400" />
+                <span>Entregar em: {{ $savedCep ? 'CEP '.$savedCep : 'Informar CEP' }}</span>
+            </button>
             @auth
-                <a href="{{ route('card.show') }}" class="block px-3 py-2 rounded-md text-sm text-slate-300 hover:bg-slate-800">Meu cartão virtual</a>
-                <a href="{{ route('orders.index') }}" class="block px-3 py-2 rounded-md text-sm text-slate-300 hover:bg-slate-800">Meus pedidos</a>
+                @if($currentCompany)
+                    <a href="{{ route('company.dashboard') }}" class="block px-3 py-2 rounded-md text-sm text-slate-300 hover:bg-slate-800">Painel da Empresa</a>
+                    <a href="{{ route('wallet.show') }}" class="block px-3 py-2 rounded-md text-sm text-slate-300 hover:bg-slate-800">Carteira de Créditos</a>
+                    <a href="{{ route('orders.index') }}" class="block px-3 py-2 rounded-md text-sm text-slate-300 hover:bg-slate-800">Pedidos da empresa</a>
+                @endif
                 @can('admin')
                     <div class="pt-2 mt-2 border-t border-slate-800 space-y-1">
-                        <span class="px-3 text-xs text-slate-400">Administração</span>
+                        <span class="px-3 text-xs text-slate-400">Backoffice</span>
                         <a href="{{ route('admin.dashboard') }}" class="block px-3 py-2 rounded-md text-xs font-medium text-paper bg-slate-800">Painel Admin</a>
-                        <a href="{{ route('admin.recharges.index') }}" class="block px-3 py-2 rounded-md text-xs font-medium text-slate-200 bg-slate-800">Recargas ({{ $adminPendingRechargesCount }})</a>
+                        <a href="{{ route('admin.payments.index') }}" class="block px-3 py-2 rounded-md text-xs font-medium text-slate-200 bg-slate-800">Pagamentos ({{ $adminPendingPaymentsCount }})</a>
                         <a href="{{ route('admin.orders.index') }}" class="block px-3 py-2 rounded-md text-xs font-medium text-slate-200 bg-slate-800">Pedidos</a>
                     </div>
                 @endcan
@@ -623,7 +635,7 @@
             @else
                 <div class="grid grid-cols-2 gap-2 pt-2">
                     <a href="{{ route('login') }}" class="text-center py-2.5 rounded-md border border-slate-700 font-medium text-xs text-paper">Entrar</a>
-                    <a href="{{ route('register') }}" class="text-center py-2.5 rounded-md bg-paper font-medium text-xs text-ink">Criar conta</a>
+                    <a href="{{ route('register') }}" class="text-center py-2.5 rounded-md bg-paper font-medium text-xs text-ink">Cadastrar empresa</a>
                 </div>
             @endauth
         </div>
@@ -635,8 +647,8 @@
             <div class="relative bg-surface rounded-lg max-w-md w-full p-6 shadow-float border border-line z-10">
                 <div class="flex items-center justify-between pb-3 border-b border-line">
                     <div>
-                        <x-eyebrow>Entrega</x-eyebrow>
-                        <h3 class="font-serif text-xl text-ink">Informe seu CEP</h3>
+                        <x-eyebrow>Entrega corporativa</x-eyebrow>
+                        <h3 class="font-serif text-xl text-ink">Informe o CEP da unidade</h3>
                     </div>
                     <button @click="cepModalOpen = false" type="button" class="text-slate-500 hover:text-ink">
                         <x-icon name="x" class="size-4" />
@@ -688,7 +700,7 @@
 
                     <div class="flex items-center justify-between px-6 py-4 bg-ink text-paper">
                         <div>
-                            <h2 class="font-serif text-xl">Carrinho ({{ $cartItemCount }})</h2>
+                            <h2 class="font-serif text-xl">Pedido em montagem ({{ $cartItemCount }})</h2>
                         </div>
                         <button @click="cartDrawerOpen = false" type="button" aria-label="Fechar carrinho" class="rounded-md p-1.5 text-slate-300 hover:text-paper">
                             <x-icon name="x" class="size-4" />
@@ -696,9 +708,7 @@
                     </div>
 
                     @php
-                        $navFreeMin = auth()->check()
-                            ? (float) app(\App\Services\LoyaltyTierService::class)->summaryFor(auth()->user())['free_shipping_min']
-                            : (float) config('digitalcard.free_shipping_min_total', 299.00);
+                        $navFreeMin = (float) config('nexosupri.free_shipping_min_total', 500.00);
                         $navMissingFree = max(0.0, round($navFreeMin - ($drawerTotal ?? 0), 2));
                         $navFreePct = $navFreeMin <= 0 ? 100 : min(100, (int) round((($drawerTotal ?? 0) / $navFreeMin) * 100));
                     @endphp
@@ -733,7 +743,7 @@
                                     <p class="text-xs text-slate-500 mt-0.5 tabular-nums">
                                         {{ $dItem['quantity'] }}x <span class="font-mono font-semibold text-ink">R$ {{ number_format((float) $dProd->price, 2, ',', '.') }}</span>
                                     </p>
-                                    <span class="text-xs font-medium text-money-600 tabular-nums">+ R$ {{ number_format($dItem['cashback'], 2, ',', '.') }} de cashback</span>
+                                    <span class="text-[11px] font-mono text-slate-500 tabular-nums">{{ number_format($dItem['subtotal'], 2, ',', '.') }} créditos</span>
                                 </div>
                                 <div class="text-right">
                                     <span class="font-mono tabular-nums text-xs font-semibold text-ink block">
@@ -748,8 +758,8 @@
                             </div>
                         @empty
                             <div class="py-16 text-center space-y-2">
-                                <p class="text-sm font-medium text-ink">Seu carrinho está vazio</p>
-                                <p class="text-xs text-slate-500">Navegue pelo catálogo e adicione produtos.</p>
+                                <p class="text-sm font-medium text-ink">Nenhum insumo selecionado</p>
+                                <p class="text-xs text-slate-500">Navegue pelo catálogo e monte o pedido de abastecimento.</p>
                             </div>
                         @endforelse
                     </div>
@@ -761,15 +771,15 @@
                                     <span>Subtotal ({{ $cartItemCount }} {{ $cartItemCount === 1 ? 'item' : 'itens' }})</span>
                                     <span class="font-mono tabular-nums font-semibold text-ink text-base">R$ {{ number_format($drawerTotal, 2, ',', '.') }}</span>
                                 </div>
-                                <div class="flex justify-between text-money-600 font-medium">
-                                    <span>Cashback estimado</span>
-                                    <span class="font-mono tabular-nums">+ R$ {{ number_format($drawerCashback, 2, ',', '.') }}</span>
+                                <div class="flex justify-between text-slate-600">
+                                    <span>Equivalente em créditos</span>
+                                    <span class="font-mono tabular-nums font-semibold text-ink">{{ number_format($drawerTotal, 2, ',', '.') }} créditos</span>
                                 </div>
                             </div>
 
                             <a href="{{ route('cart.index') }}"
                                class="flex w-full items-center justify-center gap-2 rounded-md bg-ink hover:bg-slate-800 px-4 py-3 text-xs font-medium text-paper transition">
-                                <span>Ir para o carrinho</span>
+                                <span>Revisar pedido e créditos</span>
                                 <x-icon name="arrow-right" class="size-3.5" />
                             </a>
                         </div>

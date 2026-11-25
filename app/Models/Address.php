@@ -8,7 +8,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class Address extends Model
 {
     protected $fillable = [
+        'company_id',
         'user_id',
+        'type',
         'label',
         'recipient_name',
         'cep',
@@ -26,6 +28,11 @@ class Address extends Model
         return [
             'is_default' => 'boolean',
         ];
+    }
+
+    public function company(): BelongsTo
+    {
+        return $this->belongsTo(Company::class);
     }
 
     public function user(): BelongsTo

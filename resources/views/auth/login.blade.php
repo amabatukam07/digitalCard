@@ -1,8 +1,8 @@
 <x-guest-layout>
     <div class="pb-5 border-b border-line">
-        <x-eyebrow>Acesso DigitalCard</x-eyebrow>
+        <x-eyebrow>Portal Empresarial NexoSupri</x-eyebrow>
         <h1 class="font-serif text-2xl text-ink mt-1">Entre na sua conta</h1>
-        <p class="text-xs text-slate-600 mt-1">Acesse seu cartão virtual, saldo e acompanhe seus pedidos.</p>
+        <p class="text-xs text-slate-600 mt-1">Consulte créditos disponíveis, faça pedidos de reposição e acompanhe entregas da sua empresa.</p>
     </div>
 
     <x-auth-session-status class="mb-4" :status="session('status')" />
@@ -12,9 +12,9 @@
 
         <div class="space-y-3.5">
             <div>
-                <label for="email" class="block text-xs font-medium text-slate-700 mb-1">E-mail da conta</label>
+                <label for="email" class="block text-xs font-medium text-slate-700 mb-1">E-mail corporativo</label>
                 <input id="email" type="email" name="email" value="{{ old('email') }}" required autofocus autocomplete="username"
-                       placeholder="cliente@digitalcard.com"
+                       placeholder="gestor@suaempresa.com.br"
                        class="block w-full rounded-lg border-line text-sm py-2.5 focus:border-ink focus:ring-ink">
                 <x-input-error :messages="$errors->get('email')" class="mt-1.5" />
             </div>
@@ -40,19 +40,19 @@
                            class="rounded border-line text-ink focus:ring-ink">
                     <span>Manter conectado</span>
                 </label>
-                <a href="{{ route('register') }}" class="font-medium text-ink hover:underline">Criar nova conta</a>
+                <a href="{{ route('register') }}" class="font-medium text-ink hover:underline">Cadastrar empresa</a>
             </div>
         </div>
 
         <button type="submit"
                 class="w-full font-semibold text-xs py-3 px-4 rounded-lg transition flex items-center justify-center gap-2 bg-ink hover:bg-slate-800 text-paper">
-            <span>Entrar na loja e carteira</span>
+            <span>Acessar portal e carteira</span>
             <x-icon name="arrow-right" class="size-4" />
         </button>
 
         <div class="pt-4 border-t border-line text-center">
             <a href="{{ route('admin.login') }}" class="text-xs font-medium text-slate-600 hover:text-ink underline">
-                Acesso ao Painel Administrativo
+                Acesso ao Backoffice NexoSupri
             </a>
         </div>
     </form>

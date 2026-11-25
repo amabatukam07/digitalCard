@@ -31,13 +31,13 @@ class ProductQuestionAnsweredNotification extends Notification implements Should
     public function toMail(object $notifiable): MailMessage
     {
         return (new MailMessage)
-            ->subject("DigitalCard — Sua pergunta sobre {$this->product->name} foi respondida")
+            ->subject("NexoSupri — Sua pergunta sobre {$this->product->name} foi respondida")
             ->greeting("Olá, {$notifiable->name}!")
-            ->line("Sua dúvida sobre **{$this->product->name}** recebeu uma resposta da equipe DigitalCard:")
+            ->line("Sua dúvida técnica sobre **{$this->product->name}** recebeu uma resposta da equipe NexoSupri:")
             ->line('Pergunta: "'.$this->question->question.'"')
             ->line('Resposta: "'.$this->question->answer.'"')
             ->action('Ver resposta no produto', route('catalog.product', $this->product->slug).'#perguntas')
-            ->line('Conte com a DigitalCard para tirar qualquer dúvida antes da sua compra.');
+            ->line('Conte com a NexoSupri para organizar o abastecimento da sua empresa.');
     }
 
     /**

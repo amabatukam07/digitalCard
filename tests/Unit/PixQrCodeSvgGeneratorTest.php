@@ -20,18 +20,18 @@ class PixQrCodeSvgGeneratorTest extends TestCase
         $matrixV4 = PixQrCodeSvgGenerator::encodeMatrix(str_repeat('A', 50));
         $this->assertCount(33, $matrixV4);
 
-        // BR Code PIX real (~145 bytes -> Versão 8 ou 9)
+        // BR Code PIX real NexoSupri (~145 bytes -> Versão 8 ou 9)
         $brCode = SimulatedPixGateway::generateBrCode(
-            pixKey: 'pix@digitalcard.com.br',
-            merchantName: 'DIGITALCARD PAGAMENTOS',
-            merchantCity: 'MACEIO',
-            amount: 250.00,
-            txid: 'DCPX123456789012345678901'
+            pixKey: 'pix@nexosupri.com.br',
+            merchantName: 'NEXOSUPRI SUPRIMENTOS',
+            merchantCity: 'SAO PAULO',
+            amount: 1000.00,
+            txid: 'NSPX123456789012345678901'
         );
 
         $matrixPix = PixQrCodeSvgGenerator::encodeMatrix($brCode);
         $size = count($matrixPix);
-        $this->assertGreaterThanOrEqual(49, $size); // >= V8
+        $this->assertGreaterThanOrEqual(49, $size);
 
         // Valida os 3 Finder Patterns 7x7 + dark module + timing patterns
         $this->assertFinderPatternAt($matrixPix, 0, 0);

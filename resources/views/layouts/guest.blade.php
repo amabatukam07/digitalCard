@@ -11,7 +11,7 @@
             } catch {}
         </script>
 
-        <title>{{ config('app.name', 'DigitalCard') }} — Acesso à Conta</title>
+        <title>{{ config('app.name', 'NexoSupri') }} — Acesso Empresarial</title>
         <meta name="robots" content="noindex, nofollow">
         <link rel="icon" href="{{ asset('favicon.ico') }}" sizes="any">
 
@@ -39,20 +39,20 @@
 
                     <a href="{{ route('catalog.index') }}" class="text-xs font-medium text-slate-600 hover:text-ink transition flex items-center gap-1.5">
                         <x-icon name="arrow-left" class="size-3.5" />
-                        <span>Voltar para a Loja</span>
+                        <span>Voltar ao Catálogo</span>
                     </a>
                 </div>
             </div>
         </header>
 
         <main id="main-content" class="flex-1 flex flex-col sm:justify-center items-center py-10 px-4">
-            <div class="w-full sm:max-w-md bg-surface border border-line rounded-xl p-6 sm:p-8">
+            <div class="w-full sm:max-w-lg bg-surface border border-line rounded-xl p-6 sm:p-8">
                 {{ $slot }}
             </div>
         </main>
 
         <footer class="py-5 text-center text-xs text-slate-500 border-t border-line bg-surface">
-            © {{ date('Y') }} DigitalCard — Comércio eletrônico e carteira digital.
+            © {{ date('Y') }} NexoSupri — Plataforma de abastecimento empresarial com créditos pré-pagos.
         </footer>
     </body>
 </html>

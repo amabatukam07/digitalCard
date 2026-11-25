@@ -4,59 +4,40 @@
     'priority' => false,
 ])
 @php
-    $hasCustom = $product->image_path && (str_starts_with($product->image_path, 'products/') || str_starts_with($product->image_path, 'uploads/')) && \App\Support\AssetCache::fileExists(storage_path('app/public/'.ltrim($product->image_path, '/')));
+    $path = (string) ($product->image_path ?? '');
+    $hasCustom = $path !== '' && (str_starts_with($path, 'products/') || str_starts_with($path, 'uploads/')) && \App\Support\AssetCache::fileExists(storage_path('app/public/'.ltrim($path, '/')));
+    $hasStaticPath = $path !== '' && (str_starts_with($path, '/images/') || str_starts_with($path, 'images/')) && \App\Support\AssetCache::fileExists(public_path(ltrim($path, '/')));
+    $hasJpg = $product->slug && \App\Support\AssetCache::fileExists(public_path('images/products/'.$product->slug.'.jpg'));
     $hasFull = $product->slug && \App\Support\AssetCache::fileExists(public_path('images/products/'.$product->slug.'.webp'));
     $hasThumb = $product->slug && \App\Support\AssetCache::fileExists(public_path('images/products/'.$product->slug.'-400.webp'));
-    $exists = $hasCustom || $hasFull || $hasThumb;
+    $exists = $hasCustom || $hasStaticPath || $hasJpg || $hasFull || $hasThumb;
 
     $w = $size === 'full' ? 800 : ($size === 'thumb' ? 80 : 400);
     $h = $size === 'full' ? 1000 : ($size === 'thumb' ? 100 : 500);
 
     $catName = $product->category?->name ?? 'Catálogo';
     $catIcon = $product->category?->icon ?: 'package';
-    $slugMap = [
-        'smartphones' => 'smartphone',
-        'audio-fones' => 'headphones',
-        'smartwatches' => 'watch',
-        'tablets-ereaders' => 'tablet',
-        'notebooks' => 'laptop',
-        'perifericos' => 'mouse',
-        'monitores' => 'monitor',
-        'armazenamento' => 'hard-drive',
-        'consoles' => 'gamepad-2',
-        'acessorios-gamer' => 'gamepad',
-        'eletrodomesticos' => 'cooking-pot',
-        'assistentes-hubs' => 'speaker',
-        'seguranca-conectividade' => 'lightbulb',
-        'cameras-acao' => 'camera',
-        'drones-estabilizadores' => 'plane',
-        'cadeiras-ergonomicas' => 'armchair',
-        'mesas-iluminacao-setup' => 'lightbulb',
-        'microfones-interfaces' => 'mic',
-        'streaming-acessorios' => 'sliders-horizontal',
-        'power-banks-carregadores' => 'battery-charging',
-        'mochilas-cases' => 'package',
-        'monitoramento-fitness' => 'heart-pulse',
-        'cuidados-pessoais-tech' => 'sparkles',
-    ];
-    if ($product->category?->slug && isset($slugMap[$product->category->slug])) {
-        $catIcon = $slugMap[$product->category->slug];
-    }
 @endphp
 
 @if($exists)
     @php
         $mainSrc = $hasCustom
-            ? asset('storage/'.ltrim($product->image_path, '/'))
-            : ($size === 'full' || ! $hasThumb
-                ? asset('images/products/'.$product->slug.'.webp')
-                : asset('images/products/'.$product->slug.'-400.webp'));
+            ? asset('storage/'.ltrim($path, '/'))
+            : ($hasStaticPath
+                ? asset(ltrim($path, '/'))
+                : ($hasJpg
+                    ? asset('images/products/'.$product->slug.'.jpg')
+                    : ($size === 'full' || ! $hasThumb
+                        ? asset('images/products/'.$product->slug.'.webp')
+                        : asset('images/products/'.$product->slug.'-400.webp'))));
         $srcsetParts = [];
-        if ($hasThumb) {
-            $srcsetParts[] = asset('images/products/'.$product->slug.'-400.webp').' 400w';
-        }
-        if ($hasFull) {
-            $srcsetParts[] = asset('images/products/'.$product->slug.'.webp').' 800w';
+        if (! $hasCustom && ! $hasStaticPath && ! $hasJpg) {
+            if ($hasThumb) {
+                $srcsetParts[] = asset('images/products/'.$product->slug.'-400.webp').' 400w';
+            }
+            if ($hasFull) {
+                $srcsetParts[] = asset('images/products/'.$product->slug.'.webp').' 800w';
+            }
         }
         $srcset = implode(', ', $srcsetParts);
         $aspectClass = $size === 'full' ? 'aspect-[4/5]' : 'aspect-square';

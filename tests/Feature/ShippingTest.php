@@ -17,7 +17,7 @@ class ShippingTest extends TestCase
     {
         $pricing = app(CartPricing::class);
         [$cheapProduct] = $this->createProduct(['price' => 100.00, 'stock' => 10]);
-        [$expensiveProduct] = $this->createProduct(['price' => 350.00, 'stock' => 10]);
+        [$expensiveProduct] = $this->createProduct(['price' => 550.00, 'stock' => 10]);
 
         $underThreshold = $pricing->calculate(
             rawCart: [$cheapProduct->id => ['product_id' => $cheapProduct->id, 'quantity' => 1]],
@@ -64,14 +64,14 @@ class ShippingTest extends TestCase
             'slug' => 'dep-'.uniqid(),
         ]);
 
-        $product = Product::create(array_merge([
+        $product = Product::factory()->create(array_merge([
             'category_id' => $category->id,
             'name' => 'Item Teste',
             'slug' => 'item-teste-'.uniqid(),
             'description' => 'Descrição item.',
+            'cost_price' => 50.00,
+            'inbound_freight' => 0.00,
             'price' => 100.00,
-            'compare_at_price' => null,
-            'cashback_percent' => 5.00,
             'stock' => 10,
             'is_active' => true,
         ], $attributes));

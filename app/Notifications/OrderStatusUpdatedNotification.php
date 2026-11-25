@@ -32,12 +32,12 @@ class OrderStatusUpdatedNotification extends Notification implements ShouldQueue
         $orderCode = '#PED-'.str_pad((string) $this->order->id, 6, '0', STR_PAD_LEFT);
 
         return (new MailMessage)
-            ->subject("DigitalCard — Pedido {$orderCode}: {$this->newStatus}")
+            ->subject("NexoSupri — Pedido {$orderCode}: {$this->newStatus}")
             ->greeting("Olá, {$notifiable->name}!")
-            ->line("O status do seu pedido {$orderCode} foi atualizado para: **{$this->newStatus}**.")
+            ->line("O status do pedido de abastecimento {$orderCode} foi atualizado para: **{$this->newStatus}**.")
             ->when($this->order->tracking_code, fn (MailMessage $mail) => $mail->line("Código de rastreio: {$this->order->tracking_code}"))
             ->action('Acompanhar Pedido', route('orders.show', $this->order))
-            ->line('Agradecemos por comprar com a DigitalCard.');
+            ->line('NexoSupri — Sua empresa cuida dos negócios. A NexoSupri cuida das compras.');
     }
 
     /**

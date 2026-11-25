@@ -14,30 +14,33 @@ class CartPricingTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_calculates_integer_cents_prorated_discount_cashback_cap_and_price_warnings(): void
+    public function test_calculates_integer_cents_prorated_discount_b2b_costs_and_price_warnings(): void
     {
         $user = User::factory()->create();
-        $category = Category::create(['name' => 'Testes', 'slug' => 'testes-unit']);
+        $category = Category::create(['name' => 'Testes B2B', 'slug' => 'testes-b2b-unit']);
 
-        $prodA = Product::create([
+        $prodA = Product::factory()->create([
             'category_id' => $category->id,
-            'name' => 'Produto A',
-            'slug' => 'produto-a-unit',
-            'description' => 'Item A',
+            'name' => 'Insumo A',
+            'slug' => 'insumo-a-unit',
+            'cost_price' => 60.00,
+            'inbound_freight' => 5.00,
+            'other_costs' => 0.00,
+            'das_rate' => 4.00,
             'price' => 100.00,
-            'cashback_percent' => 10.00,
             'stock' => 5,
             'is_active' => true,
         ]);
 
-        // Cashback acima do teto config('digitalcard.max_cashback_percent', 15.0) deve ser limitado a 15%
-        $prodB = Product::create([
+        $prodB = Product::factory()->create([
             'category_id' => $category->id,
-            'name' => 'Produto B',
-            'slug' => 'produto-b-unit',
-            'description' => 'Item B',
+            'name' => 'Insumo B',
+            'slug' => 'insumo-b-unit',
+            'cost_price' => 120.00,
+            'inbound_freight' => 10.00,
+            'other_costs' => 0.00,
+            'das_rate' => 4.00,
             'price' => 200.00,
-            'cashback_percent' => 40.00,
             'stock' => 5,
             'is_active' => true,
         ]);
@@ -66,17 +69,71 @@ class CartPricingTest extends TestCase
             cep: '57000-000',
         );
 
-        // Subtotal = 300.00; desconto = 30.00 (10% do subtotal); líquido = 270.00 (< 299 -> frete AL 14.90)
+        // Subtotal = 300.00; desconto = 30.00; líquido = 270.00 (< 500 -> frete AL 24.90); total = 294.90
         $this->assertSame(30000, $summary['subtotal_cents']);
         $this->assertSame(3000, $summary['discount_cents']);
-        $this->assertSame(1490, $summary['shipping_cents']);
-        $this->assertSame(28490, $summary['total_cents']);
+        $this->assertSame(2490, $summary['shipping_cents']);
+        $this->assertSame(29490, $summary['total_cents']);
+        $this->assertSame(294.90, $summary['credits_required']);
 
-        // Rateio do desconto: Prod A (1/3) = 10.00 (pago 90.00 -> CB 10% = 9.00); Prod B (2/3) = 20.00 (pago 180.00 -> CB 15% = 27.00)
+        // Rateio do desconto: Insumo A (1/3) = 10.00; Insumo B (2/3) = 20.00
         $this->assertSame(1000, $summary['items'][0]['discount_cents']);
         $this->assertSame(2000, $summary['items'][1]['discount_cents']);
-        $this->assertSame(15.0, $summary['items'][1]['cashback_percent']);
-        $this->assertSame(3600, $summary['cashback_total_cents']);
+
+        // Custos totais (65 + 130 = 195), DAS estimado e margem B2B
+        $this->assertSame(195.00, $summary['totalCost']);
+        $this->assertGreaterThan(0.0, $summary['estimatedDas']);
+        $this->assertGreaterThan(0.0, $summary['estimatedMargin']);
         $this->assertCount(1, $summary['price_warnings']);
+    }
+
+    public function test_hamilton_proration_distributes_exact_discount_cents_without_remainder_bias(): void
+    {
+        $user = User::factory()->create();
+        $category = Category::create(['name' => 'Rateio B2B', 'slug' => 'rateio-b2b-unit']);
+
+        $items = [];
+        foreach ([33.33, 33.33, 33.34] as $index => $price) {
+            $prod = Product::factory()->create([
+                'category_id' => $category->id,
+                'name' => 'Item '.$index,
+                'slug' => 'item-rateio-'.$index,
+                'cost_price' => 15.00,
+                'inbound_freight' => 1.00,
+                'das_rate' => 4.00,
+                'price' => $price,
+                'stock' => 10,
+                'is_active' => true,
+            ]);
+            $items[$prod->id] = ['product_id' => $prod->id, 'quantity' => 1];
+        }
+
+        Coupon::updateOrCreate(
+            ['code' => 'EXACT10'],
+            [
+                'label' => 'R$ 10 OFF',
+                'type' => 'fixed',
+                'value' => 10.00,
+                'min_total' => 50.00,
+                'max_uses' => 10,
+                'per_user_limit' => 2,
+                'is_active' => true,
+            ]
+        );
+
+        $summary = app(CartPricing::class)->calculate(
+            rawCart: $items,
+            couponCode: 'EXACT10',
+            user: $user,
+        );
+
+        $this->assertSame(1000, $summary['discount_cents']);
+        $sumLineDiscounts = array_sum(array_column($summary['items'], 'discount_cents'));
+        $this->assertSame($summary['discount_cents'], $sumLineDiscounts);
+
+        foreach ($summary['items'] as $line) {
+            $this->assertGreaterThanOrEqual(0, $line['paid_subtotal_cents']);
+            $this->assertLessThanOrEqual($line['subtotal_cents'], $line['discount_cents']);
+        }
     }
 }

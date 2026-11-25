@@ -45,25 +45,6 @@ class ProductBundle extends Model
         return CartPricing::toDecimal($totalCents);
     }
 
-    public function totalCashback(): float
-    {
-        $maxCb = (float) config('digitalcard.max_cashback_percent', 15.0);
-        $totalCbCents = 0;
-
-        foreach ($this->items as $item) {
-            if (! $item->product) {
-                continue;
-            }
-
-            $unitCents = CartPricing::toCents((float) $item->product->price);
-            $lineCents = $unitCents * max(1, (int) $item->quantity);
-            $cbPct = min(max(0.0, (float) $item->product->cashback_percent), $maxCb);
-            $totalCbCents += (int) round($lineCents * ($cbPct / 100));
-        }
-
-        return CartPricing::toDecimal($totalCbCents);
-    }
-
     public function isAvailable(): bool
     {
         if (! $this->is_active || $this->items->isEmpty()) {

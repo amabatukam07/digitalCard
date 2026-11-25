@@ -34,12 +34,12 @@ class ProductPriceDropNotification extends Notification implements ShouldQueue
         $formattedTarget = 'R$ '.number_format($this->targetPrice, 2, ',', '.');
 
         return (new MailMessage)
-            ->subject("DigitalCard — Alerta de preço: {$this->product->name}")
+            ->subject("NexoSupri — Alerta de preço: {$this->product->name}")
             ->greeting("Olá, {$notifiable->name}!")
-            ->line("O produto **{$this->product->name}** atingiu o preço desejado no seu alerta!")
+            ->line("O insumo **{$this->product->name}** atingiu o valor desejado no seu alerta de reposição!")
             ->line("Preço atual: **{$formattedCurrent}** (sua meta: {$formattedTarget}).")
-            ->action('Aproveitar oferta agora', route('catalog.product', $this->product->slug))
-            ->line('Você pode pagar com seu saldo DigitalCard e garantir cashback na entrega.');
+            ->action('Consultar no catálogo', route('catalog.product', $this->product->slug))
+            ->line('Utilize os créditos empresariais da NexoSupri para programar sua reposição.');
     }
 
     /**

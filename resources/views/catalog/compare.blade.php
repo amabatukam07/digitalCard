@@ -1,14 +1,14 @@
-<x-app-layout :metaTitle="'Comparar Produtos'" :metaDescription="'Compare até 4 produtos DigitalCard lado a lado por preço, desconto, cashback e avaliações verificadas.'">
+<x-app-layout :metaTitle="'Comparar Insumos'" :metaDescription="'Compare até 4 insumos NexoSupri lado a lado por preço, apresentação, disponibilidade e avaliações.'">
     <div class="app-shell py-8 space-y-8">
         <div class="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b border-line pb-5">
             <div>
-                <x-eyebrow>Comparador inteligente</x-eyebrow>
+                <x-eyebrow>Comparador B2B</x-eyebrow>
                 <h1 class="mt-1 font-serif text-3xl text-ink flex items-center gap-2.5">
                     <x-icon name="scale" class="size-7 text-accent-600 shrink-0" />
-                    <span>Comparar Produtos Lado a Lado</span>
+                    <span>Comparar Insumos Lado a Lado</span>
                 </h1>
                 <p class="text-xs sm:text-sm text-slate-600 mt-1">
-                    Analise preço, economia, percentual de cashback e avaliações de até 4 itens do catálogo ({{ $products->count() }}/4 selecionados).
+                    Analise valor em R$/créditos, apresentação, disponibilidade e avaliações de até 4 insumos ({{ $products->count() }}/4 selecionados).
                 </p>
             </div>
 
@@ -41,7 +41,7 @@
                 <div class="space-y-1 max-w-md mx-auto">
                     <h2 class="font-serif text-2xl text-ink">Seu comparador está vazio</h2>
                     <p class="text-xs sm:text-sm text-slate-600">
-                        Clique no ícone de balança nos cards de produtos para comparar especificações, cashback e avaliações lado a lado.
+                        Clique no ícone de balança nos cards de insumos para comparar preços, apresentações e disponibilidade lado a lado.
                     </p>
                 </div>
                 <a href="{{ route('catalog.index') }}"
@@ -51,7 +51,7 @@
                 </a>
             </div>
         @else
-            <div tabindex="0" role="region" aria-label="Tabela comparativa de produtos" class="table-scroll-region rounded-2xl border border-line bg-surface shadow-sm">
+            <div tabindex="0" role="region" aria-label="Tabela comparativa de insumos" class="table-scroll-region rounded-2xl border border-line bg-surface shadow-sm">
                 <table class="w-full min-w-[720px] border-collapse text-left">
                     <thead>
                         <tr class="border-b border-line bg-paper">
@@ -64,7 +64,7 @@
                                             <form action="{{ route('compare.remove', $item) }}" method="POST">
                                                 @csrf
                                                 @method('DELETE')
-                                                <button type="submit" title="Remover produto" aria-label="Remover {{ $item->name }} do comparador"
+                                                <button type="submit" title="Remover item" aria-label="Remover {{ $item->name }} do comparador"
                                                         class="text-xs text-slate-400 hover:text-danger-600 transition p-1 -m-1">
                                                     <x-icon name="x" class="size-4" />
                                                 </button>
@@ -86,11 +86,9 @@
 
                     <tbody class="divide-y divide-line text-xs">
                         <tr>
-                            <th scope="row" class="px-5 py-4 font-semibold text-slate-700 bg-paper/60">Preço no cartão</th>
+                            <th scope="row" class="px-5 py-4 font-semibold text-slate-700 bg-paper/60">Preço / Créditos</th>
                             @foreach($products as $item)
-                                @php
-                                    $isLowest = $lowestPrice !== null && abs((float) $item->price - (float) $lowestPrice) < 0.01;
-                                @endphp
+                                @php($isLowest = $lowestPrice !== null && abs((float) $item->price - (float) $lowestPrice) < 0.01)
                                 <td class="px-5 py-4 border-l border-line {{ $isLowest ? 'bg-money-50/40' : '' }}">
                                     <div class="flex flex-wrap items-center gap-2">
                                         <span class="font-mono text-base font-bold tabular-nums text-ink">
@@ -99,38 +97,21 @@
                                         @if($isLowest && $products->count() > 1)
                                             <span class="inline-flex items-center gap-1 rounded px-2 py-0.5 bg-money-600 text-paper text-[11px] font-semibold">
                                                 <x-icon name="check" class="size-3" />
-                                                <span>Melhor preço</span>
+                                                <span>Menor preço</span>
                                             </span>
                                         @endif
                                     </div>
-                                    @if($item->discount_percent > 0)
-                                        <span class="block mt-1 text-slate-500 line-through tabular-nums">
-                                            De R$ {{ number_format((float) $item->compare_at_price, 2, ',', '.') }} (−{{ $item->discount_percent }}%)
-                                        </span>
-                                    @endif
+                                    <span class="block mt-1 font-mono text-[11px] text-slate-500">{{ number_format((float) $item->price, 2, ',', '.') }} créditos</span>
                                 </td>
                             @endforeach
                         </tr>
 
                         <tr>
-                            <th scope="row" class="px-5 py-4 font-semibold text-slate-700 bg-paper/60">Cashback na entrega</th>
+                            <th scope="row" class="px-5 py-4 font-semibold text-slate-700 bg-paper/60">Apresentação / SKU</th>
                             @foreach($products as $item)
-                                @php
-                                    $cbValue = round((float) $item->price * ((float) $item->cashback_percent / 100), 2);
-                                    $isHighestCb = $highestCashback !== null && (float) $highestCashback > 0 && abs((float) $item->cashback_percent - (float) $highestCashback) < 0.01;
-                                @endphp
-                                <td class="px-5 py-4 border-l border-line {{ $isHighestCb ? 'bg-money-50/40' : '' }}">
-                                    <div class="flex flex-wrap items-center gap-2">
-                                        <span class="font-mono font-semibold tabular-nums text-money-700">
-                                            {{ rtrim(rtrim(number_format((float) $item->cashback_percent, 2, ',', '.'), '0'), ',') }}% (+ R$ {{ number_format($cbValue, 2, ',', '.') }})
-                                        </span>
-                                        @if($isHighestCb && $products->count() > 1)
-                                            <span class="inline-flex items-center gap-1 rounded px-2 py-0.5 bg-accent-600 text-paper text-[11px] font-semibold">
-                                                <x-icon name="sparkles" class="size-3" />
-                                                <span>Maior cashback</span>
-                                            </span>
-                                        @endif
-                                    </div>
+                                <td class="px-5 py-4 border-l border-line">
+                                    <span class="font-medium text-ink block">{{ $item->presentation ?: $item->unit }}</span>
+                                    <span class="font-mono text-[11px] text-slate-500">{{ $item->sku }}</span>
                                 </td>
                             @endforeach
                         </tr>
@@ -141,7 +122,6 @@
                                 @php
                                     $rating = (float) $item->rating;
                                     $reviewsCount = (int) $item->reviews_count;
-                                    $isTopRated = $highestRating !== null && (float) $highestRating > 0 && abs($rating - (float) $highestRating) < 0.01;
                                 @endphp
                                 <td class="px-5 py-4 border-l border-line">
                                     @if($reviewsCount > 0)
@@ -149,9 +129,6 @@
                                             <x-icon name="star" class="size-4 text-accent-500" />
                                             <span class="font-semibold tabular-nums text-ink">{{ number_format($rating, 1, ',', '.') }}</span>
                                             <span class="text-slate-500 tabular-nums">({{ $reviewsCount }})</span>
-                                            @if($isTopRated && $products->count() > 1)
-                                                <span class="rounded bg-accent-50 border border-accent-200 px-1.5 py-0.5 text-[11px] font-medium text-accent-800">Destaque</span>
-                                            @endif
                                         </div>
                                     @else
                                         <span class="text-slate-500">Sem avaliações</span>
@@ -173,15 +150,6 @@
                         </tr>
 
                         <tr>
-                            <th scope="row" class="px-5 py-4 font-semibold text-slate-700 bg-paper/60 align-top">Especificações</th>
-                            @foreach($products as $item)
-                                <td class="px-5 py-4 border-l border-line text-slate-600 leading-relaxed align-top">
-                                    {{ $item->description }}
-                                </td>
-                            @endforeach
-                        </tr>
-
-                        <tr>
                             <th scope="row" class="px-5 py-4 font-semibold text-slate-700 bg-paper/60">Ações</th>
                             @foreach($products as $item)
                                 <td class="px-5 py-4 border-l border-line">
@@ -192,7 +160,7 @@
                                             <button type="submit"
                                                     class="w-full inline-flex items-center justify-center gap-1.5 rounded-lg bg-ink hover:bg-slate-800 text-paper font-semibold px-3 py-2 transition">
                                                 <x-icon name="shopping-cart" class="size-3.5" />
-                                                <span>Adicionar ao carrinho</span>
+                                                <span>Adicionar ao pedido</span>
                                             </button>
                                         </form>
                                         <a href="{{ route('catalog.product', $item->slug) }}"
@@ -212,7 +180,7 @@
             <section class="space-y-4 pt-4 border-t border-line">
                 <div>
                     <x-eyebrow>Sugestões para comparar</x-eyebrow>
-                    <h2 class="font-serif text-2xl text-ink mt-1">Adicione mais produtos ao comparador</h2>
+                    <h2 class="font-serif text-2xl text-ink mt-1">Adicione mais insumos ao comparador</h2>
                 </div>
                 <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 xl:gap-5">
                     @foreach($suggestions as $suggested)

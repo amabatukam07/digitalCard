@@ -15,7 +15,7 @@ class BundleController extends Controller
     public function index(): View
     {
         $bundles = ProductBundle::query()
-            ->with(['items.product.category'])
+            ->with(['items.product.category', 'items.product.images'])
             ->where('is_active', true)
             ->orderBy('id')
             ->get();
@@ -44,6 +44,7 @@ class BundleController extends Controller
             }
 
             $qtyToAdd = max(1, (int) $bundleItem->quantity);
+
             $currentQty = (int) ($cart[$product->id]['quantity'] ?? 0);
             $targetQty = min($product->stock, $currentQty + $qtyToAdd);
 

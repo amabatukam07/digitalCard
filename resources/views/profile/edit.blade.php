@@ -1,8 +1,15 @@
-<x-app-layout :metaTitle="'Minha Conta e Segurança'" :metaDescription="'Gerencie seus dados cadastrais, endereços e senha na DigitalCard.'">
+<x-app-layout :metaTitle="'Minha Conta e Endereços'" :metaDescription="'Gerencie seus dados cadastrais, endereços corporativos e senha na NexoSupri.'">
     <x-slot name="header">
-        <h2 class="font-serif text-2xl text-ink leading-tight">
-            Minha Conta
-        </h2>
+        <div class="flex flex-wrap items-center justify-between gap-3">
+            <h2 class="font-serif text-2xl text-ink leading-tight">
+                Minha Conta
+            </h2>
+            @if(isset($company) && $company)
+                <a href="{{ route('company.dashboard') }}" class="text-xs font-medium text-ink underline hover:text-accent-600">
+                    Empresa: {{ $company->trade_name }} ({{ $company->cnpj }}) →
+                </a>
+            @endif
+        </div>
     </x-slot>
 
     <div class="py-10">
@@ -18,17 +25,10 @@
                     <div>
                         <h2 class="text-lg font-medium text-ink flex items-center gap-2">
                             <x-icon name="bell-ring" class="size-5 text-accent-600" />
-                            <span>Meus Alertas de Preço</span>
+                            <span>Alertas de Preço de Insumos</span>
                         </h2>
-                        <p class="mt-1 text-sm text-slate-600">Monitore automaticamente produtos até atingirem o valor desejado.</p>
+                        <p class="mt-1 text-sm text-slate-600">Monitore automaticamente insumos até atingirem o valor-alvo desejado.</p>
                     </div>
-                    @if(isset($loyaltySummary))
-                        <a href="{{ route('card.show') }}"
-                           class="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-semibold {{ $loyaltySummary['tier']->badgeClasses() }}">
-                            <x-icon name="crown" class="size-3.5" />
-                            <span>Clube {{ $loyaltySummary['tier_label'] }}</span>
-                        </a>
-                    @endif
                 </div>
 
                 @if(($priceAlerts ?? collect())->isNotEmpty())
@@ -74,7 +74,7 @@
                     </div>
                 @else
                     <div class="rounded-lg border border-line bg-paper p-5 text-xs text-slate-600 flex flex-wrap items-center justify-between gap-3">
-                        <span>Você ainda não criou alertas de queda de preço em nenhum produto.</span>
+                        <span>Você ainda não criou alertas de queda de preço em nenhum insumo.</span>
                         <a href="{{ route('catalog.index') }}" class="font-semibold text-ink hover:underline">Explorar catálogo →</a>
                     </div>
                 @endif
@@ -83,8 +83,8 @@
             <div class="p-4 sm:p-8 bg-surface border border-line rounded-xl shadow-sm space-y-6">
                 <div class="max-w-3xl space-y-4">
                     <header>
-                        <h2 class="text-lg font-medium text-ink">Livro de Endereços de Entrega</h2>
-                        <p class="mt-1 text-sm text-slate-600">Gerencie seus endereços salvos e escolha o endereço padrão para compras rápidas.</p>
+                        <h2 class="text-lg font-medium text-ink">Endereços Corporativos de Entrega</h2>
+                        <p class="mt-1 text-sm text-slate-600">Gerencie as unidades e almoxarifados cadastrados para recebimento de pedidos.</p>
                     </header>
 
                     @if(($addresses ?? collect())->isNotEmpty())
@@ -128,8 +128,8 @@
                     <form action="{{ route('addresses.store') }}" method="POST" class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 text-xs">
                         @csrf
                         <div>
-                            <label for="addr_label" class="block font-medium text-slate-700 mb-1">Identificação (ex: Casa, Trabalho)</label>
-                            <input id="addr_label" type="text" name="label" placeholder="Casa" maxlength="60" class="w-full rounded-md border-line text-xs py-2">
+                            <label for="addr_label" class="block font-medium text-slate-700 mb-1">Identificação da unidade (ex: Matriz, Filial Sul)</label>
+                            <input id="addr_label" type="text" name="label" placeholder="Matriz" maxlength="80" class="w-full rounded-md border-line text-xs py-2">
                         </div>
                         <div>
                             <label for="addr_cep" class="block font-medium text-slate-700 mb-1">CEP</label>
@@ -142,7 +142,7 @@
                         <div class="grid grid-cols-2 gap-2">
                             <div>
                                 <label for="addr_number" class="block font-medium text-slate-700 mb-1">Número</label>
-                                <input id="addr_number" type="text" name="number" placeholder="123" maxlength="30" class="w-full rounded-md border-line text-xs py-2">
+                                <input id="addr_number" type="text" name="number" placeholder="1578" maxlength="30" class="w-full rounded-md border-line text-xs py-2">
                             </div>
                             <div>
                                 <label for="addr_complement" class="block font-medium text-slate-700 mb-1">Complemento</label>

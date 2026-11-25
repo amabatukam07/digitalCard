@@ -16,12 +16,12 @@ class ShippingCalculatorTest extends TestCase
     {
         $calculator = app(ShippingCalculator::class);
 
-        $spUnder = $calculator->calculate('01001-000', 29899);
+        $spUnder = $calculator->calculate('01001-000', 49999);
         $this->assertFalse($spUnder['is_free']);
         $this->assertSame('SP', $spUnder['uf']);
         $this->assertSame(1990, $spUnder['cost_cents']);
 
-        $spExactFree = $calculator->calculate('01001-000', 29900);
+        $spExactFree = $calculator->calculate('01001-000', 50000);
         $this->assertTrue($spExactFree['is_free']);
         $this->assertSame(0, $spExactFree['cost_cents']);
     }
@@ -47,7 +47,7 @@ class ShippingCalculatorTest extends TestCase
         app()->detectEnvironment(fn () => 'local');
         try {
             $fallback = $calculator->lookupCep('01001-000');
-            $this->assertSame('Avenida Principal (Consulta Simulada)', $fallback['street']);
+            $this->assertSame('Avenida Empresarial (Consulta Simulada)', $fallback['street']);
             $this->assertFalse(Cache::has('viacep:01001000'));
 
             $resolved = $calculator->lookupCep('01001-000');

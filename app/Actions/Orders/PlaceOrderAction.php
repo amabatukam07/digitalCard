@@ -2,20 +2,20 @@
 
 namespace App\Actions\Orders;
 
-use App\Http\Controllers\VirtualCardController;
-use App\Models\CardTransaction;
+use App\Models\AuditLog;
+use App\Models\CompanyUser;
 use App\Models\CouponRedemption;
+use App\Models\CreditTransaction;
+use App\Models\CreditWallet;
 use App\Models\Order;
 use App\Models\OrderStatusHistory;
-use App\Models\Product;
 use App\Models\User;
-use App\Models\VirtualCard;
+use App\Notifications\OrderApprovalRequestedNotification;
 use App\Services\CartPricing;
+use App\Services\InventoryService;
 use App\Services\WalletLedgerService;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\ValidationException;
 
 class PlaceOrderAction
@@ -23,22 +23,24 @@ class PlaceOrderAction
     public function __construct(
         private readonly CartPricing $pricing,
         private readonly WalletLedgerService $ledger,
+        private readonly InventoryService $inventory,
     ) {}
 
     /**
-     * Executa o checkout completo de forma transacional, idempotente e ordenada por ID.
+     * Executa o checkout B2B de forma transacional, idempotente e respeitando alçada de aprovação da empresa.
      *
      * @param  array<int, array{product_id: int, quantity: int, price_snapshot?: float|null}>  $requestedItems
-     * @return array{order: Order, duplicate: bool, price_warnings: list<string>}
+     * @return array{order: Order, duplicate: bool, awaiting_approval: bool, price_warnings: list<string>}
      */
     public function execute(
         User $user,
         array $requestedItems,
         string $shippingAddress,
         ?string $shippingCep = null,
-        ?string $cardPin = null,
         ?string $couponCode = null,
         ?string $idempotencyKey = null,
+        ?string $department = null,
+        ?string $notes = null,
     ): array {
         if ($idempotencyKey) {
             $existingOrder = Order::where('idempotency_key', $idempotencyKey)
@@ -49,6 +51,7 @@ class PlaceOrderAction
                 return [
                     'order' => $existingOrder,
                     'duplicate' => true,
+                    'awaiting_approval' => $existingOrder->status === Order::STATUS_AWAITING_APPROVAL,
                     'price_warnings' => [],
                 ];
             }
@@ -56,66 +59,45 @@ class PlaceOrderAction
 
         if ($requestedItems === []) {
             throw ValidationException::withMessages([
-                'cart' => 'Seu carrinho está vazio. Adicione produtos antes de finalizar a compra.',
+                'cart' => 'Seu carrinho está vazio. Adicione insumos antes de finalizar o pedido.',
+            ]);
+        }
+
+        $company = $user->primaryCompany();
+        if (! $company || ! $company->isActive()) {
+            throw ValidationException::withMessages([
+                'company' => 'Sua conta precisa estar vinculada a uma empresa cliente ativa para realizar pedidos.',
+            ]);
+        }
+
+        $membership = $user->companyMembership($company);
+        if (! $membership || ! $membership->is_active) {
+            throw ValidationException::withMessages([
+                'company' => 'Seu vínculo com a empresa está inativo.',
             ]);
         }
 
         ksort($requestedItems, SORT_NUMERIC);
 
-        $pinThrottleKey = VirtualCardController::pinThrottleKey((int) $user->id);
-
-        if (RateLimiter::tooManyAttempts($pinThrottleKey, VirtualCardController::PIN_MAX_ATTEMPTS)) {
-            $seconds = RateLimiter::availableIn($pinThrottleKey);
-            $minutes = (int) ceil($seconds / 60);
-
-            throw ValidationException::withMessages([
-                'card_pin' => "Muitas tentativas incorretas de PIN. Seu cartão foi temporariamente protegido por {$minutes} minuto(s) ({$seconds}s).",
-            ]);
-        }
-
-        $initialCard = $user->virtualCard()->firstOrCreate([], [
-            'card_number' => VirtualCard::generateUniqueCardNumber(),
-            'cvv' => VirtualCard::generateCvv(),
-            'expiration_date' => VirtualCard::DEFAULT_EXPIRATION_DATE,
-            'balance' => 0.00,
-            'cashback_earned' => 0.00,
-        ]);
-
-        if (! $initialCard->is_active) {
-            throw ValidationException::withMessages([
-                'card' => 'Seu cartão virtual está bloqueado. Desbloqueie-o para continuar.',
-            ]);
-        }
-
-        if (empty($initialCard->security_pin)) {
-            throw ValidationException::withMessages([
-                'card_pin' => 'Por segurança, cadastre um PIN de 4 dígitos no seu Cartão Virtual antes de realizar a primeira compra.',
-            ]);
-        }
-
-        if (! Hash::check((string) ($cardPin ?? ''), $initialCard->security_pin)) {
-            RateLimiter::hit($pinThrottleKey, VirtualCardController::PIN_DECAY_SECONDS);
-
-            throw ValidationException::withMessages([
-                'card_pin' => 'PIN inválido. Informe o PIN de 4 dígitos do cartão.',
-            ]);
-        }
-
-        RateLimiter::clear($pinThrottleKey);
-
         $priceWarnings = [];
         $wasDuplicate = false;
+        $needsApproval = false;
 
         try {
             $order = DB::transaction(function () use (
                 $user,
+                $company,
+                $membership,
                 $requestedItems,
                 $shippingAddress,
                 $shippingCep,
                 $couponCode,
                 $idempotencyKey,
+                $department,
+                $notes,
                 &$priceWarnings,
-                &$wasDuplicate
+                &$wasDuplicate,
+                &$needsApproval,
             ): Order {
                 if ($idempotencyKey) {
                     $existingInsideTx = Order::where('idempotency_key', $idempotencyKey)
@@ -124,42 +106,33 @@ class PlaceOrderAction
 
                     if ($existingInsideTx) {
                         $wasDuplicate = true;
+                        $needsApproval = $existingInsideTx->status === Order::STATUS_AWAITING_APPROVAL;
 
                         return $existingInsideTx;
                     }
                 }
 
-                $card = VirtualCard::where('user_id', $user->id)
+                $wallet = CreditWallet::where('company_id', $company->id)
                     ->lockForUpdate()
-                    ->firstOrFail();
+                    ->first();
 
-                if (! $card->is_active) {
-                    throw ValidationException::withMessages([
-                        'card' => 'Seu cartão virtual está bloqueado. Desbloqueie-o para continuar.',
+                if (! $wallet) {
+                    $wallet = $company->wallet()->create([
+                        'balance' => 0.00,
+                        'reserved_balance' => 0.00,
+                        'total_acquired' => 0.00,
+                        'total_spent' => 0.00,
+                        'is_active' => true,
                     ]);
                 }
 
-                $lockedProducts = collect();
-
-                foreach ($requestedItems as $productId => $item) {
-                    $product = Product::where('id', $productId)
-                        ->lockForUpdate()
-                        ->firstOrFail();
-
-                    if (! $product->is_active) {
-                        throw ValidationException::withMessages([
-                            'stock' => "O produto {$product->name} não está mais disponível.",
-                        ]);
-                    }
-
-                    if ($product->stock < $item['quantity']) {
-                        throw ValidationException::withMessages([
-                            'stock' => "Estoque insuficiente para o produto: {$product->name}.",
-                        ]);
-                    }
-
-                    $lockedProducts->put($product->id, $product);
+                if (! $wallet->is_active) {
+                    throw ValidationException::withMessages([
+                        'wallet' => 'A carteira de créditos da empresa está bloqueada no momento.',
+                    ]);
                 }
+
+                $lockedProducts = $this->inventory->lockAndValidateProducts($requestedItems);
 
                 $summary = $this->pricing->calculate(
                     rawCart: $requestedItems,
@@ -172,58 +145,70 @@ class PlaceOrderAction
 
                 $priceWarnings = $summary['price_warnings'];
                 $totalCents = $summary['total_cents'];
-                $cardBalanceCents = CartPricing::toCents((float) $card->balance);
+                $totalAmount = $summary['total'];
+                $walletBalanceCents = CartPricing::toCents((float) $wallet->balance);
 
-                if ($cardBalanceCents < $totalCents) {
+                if ($walletBalanceCents < $totalCents) {
                     throw ValidationException::withMessages([
-                        'balance' => 'Saldo insuficiente no cartão virtual. Faça uma recarga via PIX ou envie um comprovante para continuar.',
+                        'balance' => 'Saldo insuficiente na carteira de créditos da empresa. Contrate um plano ou recarga de créditos para continuar.',
                     ]);
                 }
 
-                if ($card->daily_limit !== null) {
-                    $dailyLimitCents = CartPricing::toCents((float) $card->daily_limit);
-                    $spentTodayCents = $this->ledger->dailySpentCents($card);
+                if ($wallet->daily_limit !== null) {
+                    $dailyLimitCents = CartPricing::toCents((float) $wallet->daily_limit);
+                    $spentTodayCents = $this->ledger->dailySpentCents($wallet);
 
                     if (($spentTodayCents + $totalCents) > $dailyLimitCents) {
                         throw ValidationException::withMessages([
-                            'card' => 'Esta compra excede o limite diário configurado para o seu cartão virtual.',
+                            'wallet' => 'Este pedido excede o limite diário configurado para a carteira da empresa.',
                         ]);
                     }
                 }
 
-                foreach ($summary['items'] as $line) {
-                    /** @var Product $prod */
-                    $prod = $line['product'];
-                    $prod->decrement('stock', $line['quantity']);
-                }
+                $isManager = $membership->isManager();
+                $exceedsUserLimit = $membership->spending_limit !== null
+                    && $totalCents > CartPricing::toCents((float) $membership->spending_limit);
+
+                $needsApproval = ! $isManager && ($company->require_order_approval || $exceedsUserLimit);
+
+                $initialStatus = $needsApproval ? Order::STATUS_AWAITING_APPROVAL : Order::STATUS_REQUESTED;
 
                 $order = Order::create([
+                    'company_id' => $company->id,
                     'user_id' => $user->id,
+                    'approved_by_user_id' => $needsApproval ? null : $user->id,
+                    'approved_at' => $needsApproval ? null : now(),
                     'idempotency_key' => $idempotencyKey,
                     'subtotal_amount' => $summary['subtotalAll'],
                     'discount_amount' => $summary['discountAmount'],
                     'coupon_code' => $summary['activeCoupon'],
                     'shipping_cost' => $summary['shippingCost'],
-                    'total_amount' => $summary['total'],
-                    'cashback_total' => $summary['cashbackTotal'],
-                    'status' => Order::STATUS_REQUESTED,
+                    'total_amount' => $totalAmount,
+                    'credits_debited' => $needsApproval ? 0.00 : $totalAmount,
+                    'total_cost_snapshot' => $summary['totalCost'],
+                    'estimated_das_amount' => $summary['estimatedDas'],
+                    'estimated_margin_amount' => $summary['estimatedMargin'],
+                    'status' => $initialStatus,
                     'shipping_address' => $shippingAddress,
                     'shipping_cep' => $shippingCep,
+                    'department' => $department ?: $membership->department,
+                    'notes' => $notes,
                 ]);
 
                 $orderItemsData = [];
                 foreach ($summary['items'] as $line) {
-                    /** @var Product $lineProduct */
                     $lineProduct = $line['product'];
                     $orderItemsData[] = [
                         'product_id' => $lineProduct->id,
                         'product_name' => $lineProduct->name,
-                        'product_sku' => 'PROD-'.str_pad((string) $lineProduct->id, 4, '0', STR_PAD_LEFT),
+                        'product_sku' => $lineProduct->sku ?: ('NX-'.str_pad((string) $lineProduct->id, 4, '0', STR_PAD_LEFT)),
+                        'unit_presentation' => $lineProduct->presentation ?: $lineProduct->unit,
                         'quantity' => $line['quantity'],
                         'unit_price' => $line['unit_price'],
-                        'cashback_percent' => $line['cashback_percent'],
+                        'unit_cost_snapshot' => $line['unit_cost'],
+                        'das_rate_snapshot' => $line['das_rate'],
                         'discount_allocated' => $line['discount'],
-                        'item_status' => Order::STATUS_REQUESTED,
+                        'item_status' => $initialStatus,
                     ];
                 }
 
@@ -239,23 +224,60 @@ class PlaceOrderAction
                     ]);
                 }
 
+                if ($needsApproval) {
+                    OrderStatusHistory::create([
+                        'order_id' => $order->id,
+                        'from_status' => null,
+                        'to_status' => Order::STATUS_AWAITING_APPROVAL,
+                        'changed_by' => $user->id,
+                        'notes' => 'Pedido criado pelo solicitante e enviado para aprovação do gestor da empresa.',
+                        'created_at' => now(),
+                    ]);
+
+                    AuditLog::record(
+                        'order.requested_approval',
+                        $order,
+                        null,
+                        ['status' => Order::STATUS_AWAITING_APPROVAL, 'total_amount' => $totalAmount],
+                        $user->id,
+                        $company->id
+                    );
+
+                    return $order;
+                }
+
+                $this->inventory->deductForOrder($order, $summary['items'], (int) $user->id);
+
+                $this->ledger->debit(
+                    lockedWallet: $wallet,
+                    amountCents: $totalCents,
+                    type: CreditTransaction::TYPE_ORDER_DEBIT,
+                    description: 'Compra corporativa #PED-'.str_pad((string) $order->id, 6, '0', STR_PAD_LEFT),
+                    reference: $order,
+                    idempotencyKey: "order:{$order->id}:debit",
+                    actorUserId: (int) $user->id,
+                    reason: 'Débito de créditos (1 crédito = R$ 1,00) na confirmação do pedido.',
+                );
+
                 OrderStatusHistory::create([
                     'order_id' => $order->id,
                     'from_status' => null,
                     'to_status' => Order::STATUS_REQUESTED,
                     'changed_by' => $user->id,
-                    'notes' => 'Pedido realizado com saldo do Cartão Virtual.',
+                    'notes' => 'Pedido confirmado com débito na carteira de créditos da empresa.',
                     'created_at' => now(),
                 ]);
 
-                $this->ledger->debit(
-                    lockedCard: $card,
-                    amountCents: $totalCents,
-                    type: CardTransaction::TYPE_PURCHASE,
-                    description: 'Compra #PED-'.str_pad((string) $order->id, 6, '0', STR_PAD_LEFT),
-                    reference: $order,
-                    idempotencyKey: "order:{$order->id}:purchase",
+                AuditLog::record(
+                    'order.placed',
+                    $order,
+                    null,
+                    ['status' => Order::STATUS_REQUESTED, 'credits_debited' => $totalAmount],
+                    $user->id,
+                    $company->id
                 );
+
+                $this->ledger->notifyIfLowBalance($wallet->fresh(), $company);
 
                 return $order;
             });
@@ -269,6 +291,7 @@ class PlaceOrderAction
                     return [
                         'order' => $existingOrder,
                         'duplicate' => true,
+                        'awaiting_approval' => $existingOrder->status === Order::STATUS_AWAITING_APPROVAL,
                         'price_warnings' => [],
                     ];
                 }
@@ -277,9 +300,21 @@ class PlaceOrderAction
             throw $e;
         }
 
+        if (! $wasDuplicate && $needsApproval) {
+            $managers = $company->users()
+                ->wherePivot('company_role', CompanyUser::ROLE_MANAGER)
+                ->wherePivot('is_active', true)
+                ->get();
+
+            foreach ($managers as $manager) {
+                $manager->notify(new OrderApprovalRequestedNotification($order, $user->name));
+            }
+        }
+
         return [
             'order' => $order,
             'duplicate' => $wasDuplicate,
+            'awaiting_approval' => $needsApproval,
             'price_warnings' => $priceWarnings,
         ];
     }

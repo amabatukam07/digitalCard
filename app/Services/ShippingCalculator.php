@@ -8,28 +8,27 @@ use Illuminate\Support\Facades\Http;
 class ShippingCalculator
 {
     /**
-     * Calcula o frete simulado com base no CEP e no subtotal em centavos (F2).
-     * Compras com subtotal líquido >= limite mínimo configurado (ou do nível de fidelidade) têm frete grátis.
+     * Calcula o frete corporativo com base no CEP e subtotal líquido em centavos.
      *
      * @return array{cost_cents: int, cost: float, is_free: bool, estimated_days: int, region: string, uf: string, free_shipping_min: float}
      */
     public function calculate(string $cep, int $merchandiseTotalCents, ?int $freeShippingMinCents = null): array
     {
-        $cleanCep = preg_replace('/\D/', '', $cep) ?: '57000000';
+        $cleanCep = preg_replace('/\D/', '', $cep) ?: '01310200';
         $firstDigit = (int) substr(str_pad($cleanCep, 8, '0'), 0, 1);
 
-        $defaultMinCents = CartPricing::toCents((float) config('digitalcard.free_shipping_min_total', 299.00));
+        $defaultMinCents = CartPricing::toCents((float) config('nexosupri.free_shipping_min_total', 500.00));
         $freeShippingMinCents = $freeShippingMinCents !== null ? max(0, $freeShippingMinCents) : $defaultMinCents;
 
         [$region, $uf, $baseCostCents, $days] = match ($firstDigit) {
-            0, 1 => ['Sudeste (SP)', 'SP', 1990, 3],
-            2 => ['Sudeste (RJ/ES)', 'RJ', 2290, 4],
-            3 => ['Sudeste (MG)', 'MG', 2290, 4],
-            4 => ['Nordeste (BA/SE)', 'BA', 1890, 3],
-            5 => ['Nordeste (PE/AL/PB/RN)', 'AL', 1490, 2],
+            0, 1 => ['Sudeste (SP)', 'SP', 1990, 2],
+            2 => ['Sudeste (RJ/ES)', 'RJ', 2290, 3],
+            3 => ['Sudeste (MG)', 'MG', 2290, 3],
+            4 => ['Nordeste (BA/SE)', 'BA', 2490, 4],
+            5 => ['Nordeste (PE/AL/PB/RN)', 'AL', 2490, 4],
             6 => ['Norte/Nordeste (CE/PI/MA/PA/AM)', 'CE', 2690, 5],
             7 => ['Centro-Oeste/Norte (DF/GO/MT/MS/TO/RO/AC)', 'DF', 2490, 4],
-            8, 9 => ['Sul (PR/SC/RS)', 'PR', 2590, 5],
+            8, 9 => ['Sul (PR/SC/RS)', 'PR', 2590, 4],
             default => ['Nacional', 'BR', 2490, 4],
         };
 
@@ -48,7 +47,7 @@ class ShippingCalculator
     }
 
     /**
-     * Consulta endereço no ViaCEP com cache de 24h e fallback offline determinístico (F2).
+     * Consulta endereço no ViaCEP com cache de 24h e fallback offline determinístico.
      *
      * @return array{cep: string, street: string, neighborhood: string, city: string, state: string}
      */
@@ -64,8 +63,8 @@ class ShippingCalculator
                 'cep' => $formatted,
                 'street' => 'Endereço informado manualmente',
                 'neighborhood' => 'Centro',
-                'city' => 'Maceió',
-                'state' => 'AL',
+                'city' => 'São Paulo',
+                'state' => 'SP',
             ];
         }
 
@@ -85,8 +84,8 @@ class ShippingCalculator
                         'cep' => (string) ($data['cep'] ?? $formatted),
                         'street' => (string) ($data['logradouro'] ?: 'Logradouro geral do CEP'),
                         'neighborhood' => (string) ($data['bairro'] ?: 'Centro'),
-                        'city' => (string) ($data['localidade'] ?: 'Maceió'),
-                        'state' => (string) ($data['uf'] ?: 'AL'),
+                        'city' => (string) ($data['localidade'] ?: 'São Paulo'),
+                        'state' => (string) ($data['uf'] ?: 'SP'),
                     ];
 
                     Cache::put($cacheKey, $resolved, 86400);
@@ -102,9 +101,9 @@ class ShippingCalculator
 
         return [
             'cep' => $formatted,
-            'street' => 'Avenida Principal (Consulta Simulada)',
+            'street' => 'Avenida Empresarial (Consulta Simulada)',
             'neighborhood' => 'Centro',
-            'city' => $quote['uf'] === 'AL' ? 'Rio Largo' : 'Capital ('.$quote['uf'].')',
+            'city' => $quote['uf'] === 'SP' ? 'São Paulo' : 'Capital ('.$quote['uf'].')',
             'state' => $quote['uf'],
         ];
     }

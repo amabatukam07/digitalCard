@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Actions\Orders\ApproveOrderAction;
 use App\Actions\Orders\CancelOrderAction;
 use App\Actions\Orders\DeliverOrderAction;
 use App\Actions\Orders\PlaceOrderAction;
@@ -10,6 +11,7 @@ use App\Enums\OrderStatus;
 use App\Http\Requests\CheckoutRequest;
 use App\Models\AuditLog;
 use App\Models\CartItem;
+use App\Models\Delivery;
 use App\Models\Order;
 use App\Models\OrderStatusHistory;
 use App\Notifications\OrderStatusUpdatedNotification;
@@ -23,9 +25,6 @@ use Illuminate\View\View;
 
 class OrderController extends Controller
 {
-    /**
-     * Finaliza a compra descontando do Cartão Virtual (S5, S9, S10, F2, F4).
-     */
     public function checkout(CheckoutRequest $request, PlaceOrderAction $placeOrder): RedirectResponse
     {
         $validated = $request->validated();
@@ -61,9 +60,10 @@ class OrderController extends Controller
             requestedItems: $requestedItems,
             shippingAddress: $validated['shipping_address'],
             shippingCep: $effectiveCep,
-            cardPin: $validated['card_pin'] ?? null,
             couponCode: $activeCoupon,
             idempotencyKey: $idempotencyKey,
+            department: $validated['department'] ?? null,
+            notes: $validated['notes'] ?? null,
         );
 
         $order = $result['order'];
@@ -82,11 +82,15 @@ class OrderController extends Controller
 
         Cache::forget('admin_pending_counts');
 
-        $request->user()->notify(new OrderStatusUpdatedNotification($order, Order::STATUS_REQUESTED));
+        $request->user()->notify(new OrderStatusUpdatedNotification($order, $order->status));
+
+        $successMessage = $result['awaiting_approval']
+            ? 'Pedido enviado para aprovação do gestor da empresa! Os créditos serão debitados após aprovação.'
+            : 'Pedido confirmado com débito em créditos! Status: Produto solicitado.';
 
         $redirect = redirect()
             ->route('orders.show', $order)
-            ->with('success', 'Compra realizada com sucesso! Status: Produto solicitado.');
+            ->with('success', $successMessage);
 
         if ($result['price_warnings'] !== []) {
             $redirect->with('warning', implode(' ', $result['price_warnings']));
@@ -97,41 +101,60 @@ class OrderController extends Controller
 
     public function myOrders(Request $request): View
     {
-        $orders = $request->user()
-            ->orders()
-            ->with(['items.product', 'statusHistories'])
+        $user = $request->user();
+        $company = $user->primaryCompany();
+
+        $orders = Order::query()
+            ->with(['user', 'approver', 'items.product', 'statusHistories', 'delivery'])
+            ->where(function ($query) use ($user, $company): void {
+                if ($company) {
+                    $query->where('company_id', $company->id);
+                } else {
+                    $query->where('user_id', $user->id);
+                }
+            })
             ->latest()
-            ->paginate(10)
+            ->paginate(12)
             ->withQueryString();
 
-        return view('orders.index', compact('orders'));
+        $isManager = $company ? $user->isCompanyManager($company) : false;
+
+        return view('orders.index', compact('orders', 'company', 'isManager'));
     }
 
-    public function show(Order $order): View
+    public function show(Request $request, Order $order): View
     {
         Gate::authorize('view', $order);
-        $order->load(['items.product', 'user', 'statusHistories.changer']);
+        $order->load(['company', 'items.product', 'user', 'approver', 'statusHistories.changer', 'delivery']);
 
-        return view('orders.show', compact('order'));
+        $canApprove = Gate::allows('approve', $order);
+
+        return view('orders.show', compact('order', 'canApprove'));
     }
 
-    /**
-     * Cancela um pedido pelo cliente enquanto estiver em "Produto solicitado".
-     */
+    public function approveOrder(Request $request, Order $order, ApproveOrderAction $approveOrder): RedirectResponse
+    {
+        Gate::authorize('approve', $order);
+
+        $approved = $approveOrder->execute($order, $request->user());
+
+        Cache::forget('admin_pending_counts');
+        $approved->user?->notify(new OrderStatusUpdatedNotification($approved, Order::STATUS_REQUESTED));
+
+        return back()->with('success', 'Pedido aprovado! Créditos debitados da carteira da empresa e encaminhado para separação.');
+    }
+
     public function cancelOrder(Request $request, Order $order, CancelOrderAction $cancelOrder): RedirectResponse
     {
         Gate::authorize('cancel', $order);
 
-        $cancelOrder->execute($order, (int) $request->user()->id, 'Cancelado pelo cliente.', customerSelfCancel: true);
+        $cancelOrder->execute($order, (int) $request->user()->id, 'Cancelado pela empresa cliente.', customerSelfCancel: true);
 
         Cache::forget('admin_pending_counts');
 
-        return back()->with('success', 'Pedido cancelado. O saldo foi estornado no cartão virtual e o estoque devolvido.');
+        return back()->with('success', 'Pedido cancelado. Créditos estornados na carteira da empresa e estoque recomposto.');
     }
 
-    /**
-     * Solicitação de devolução por direito de arrependimento (até 7 dias após entrega).
-     */
     public function requestRegretReturn(Request $request, Order $order, ProcessRegretReturnAction $processReturn): RedirectResponse
     {
         Gate::authorize('requestReturn', $order);
@@ -141,12 +164,9 @@ class OrderController extends Controller
         Cache::forget('admin_pending_counts');
         $order->user?->notify(new OrderStatusUpdatedNotification($order->fresh(), Order::STATUS_RETURNED));
 
-        return back()->with('success', 'Devolução por arrependimento (7 dias) concluída! O saldo foi estornado e o estoque recomposto.');
+        return back()->with('success', 'Devolução registrada com sucesso! Os créditos foram estornados na carteira da empresa.');
     }
 
-    /**
-     * Readiciona os itens disponíveis de um pedido anterior ao carrinho em 1 clique.
-     */
     public function reorder(Request $request, Order $order): RedirectResponse
     {
         Gate::authorize('view', $order);
@@ -182,7 +202,7 @@ class OrderController extends Controller
         }
 
         if ($addedCount === 0) {
-            return back()->with('error', 'Os produtos deste pedido estão indisponíveis no momento.');
+            return back()->with('error', 'Os insumos deste pedido estão indisponíveis no momento.');
         }
 
         $request->session()->put('cart', $cart);
@@ -193,13 +213,15 @@ class OrderController extends Controller
 
         return redirect()->route('cart.index')->with(
             'success',
-            "{$addedCount} ".($addedCount === 1 ? 'produto readicionado' : 'produtos readicionados').' ao carrinho a partir do pedido #PED-'.str_pad((string) $order->id, 6, '0', STR_PAD_LEFT).'.'.$skippedNote
+            "{$addedCount} ".($addedCount === 1 ? 'insumo readicionado' : 'insumos readicionados').' ao carrinho a partir do pedido #PED-'.str_pad((string) $order->id, 6, '0', STR_PAD_LEFT).'.'.$skippedNote
         );
     }
 
     public function adminIndex(Request $request): View
     {
-        $query = Order::with(['user', 'items.product', 'statusHistories'])->latest();
+        abort_unless((bool) $request->user()?->hasAdminAccess(), 403);
+
+        $query = Order::with(['company', 'user', 'items.product', 'statusHistories', 'delivery'])->latest();
 
         if ($statusFilter = trim((string) $request->input('status'))) {
             if (OrderStatus::tryFrom($statusFilter) !== null) {
@@ -208,23 +230,38 @@ class OrderController extends Controller
         }
 
         if ($search = trim((string) $request->input('q'))) {
-            $escaped = addcslashes($search, '%_\\');
+            $like = '%'.$search.'%';
             $numericId = (int) preg_replace('/\D/', '', $search);
 
-            $query->where(function ($builder) use ($escaped, $numericId): void {
+            $query->where(function ($builder) use ($like, $numericId): void {
                 if ($numericId > 0) {
                     $builder->orWhere('id', $numericId);
                 }
 
-                $builder->orWhereRaw("tracking_code LIKE ? ESCAPE '\\'", ["%{$escaped}%"])
-                    ->orWhereHas('user', function ($userQuery) use ($escaped): void {
-                        $userQuery->whereRaw("name LIKE ? ESCAPE '\\'", ["%{$escaped}%"])
-                            ->orWhereRaw("email LIKE ? ESCAPE '\\'", ["%{$escaped}%"]);
+                $builder->orWhere('tracking_code', 'like', $like)
+                    ->orWhereHas('company', function ($companyQuery) use ($like): void {
+                        $companyQuery->where('trade_name', 'like', $like)
+                            ->orWhere('cnpj', 'like', $like);
+                    })
+                    ->orWhereHas('user', function ($userQuery) use ($like): void {
+                        $userQuery->where('name', 'like', $like)
+                            ->orWhere('email', 'like', $like);
                     });
             });
         }
 
+        $currentStatus = trim((string) $request->input('status', ''));
+        $search = trim((string) $request->input('q', ''));
+
         $orders = $query->paginate(15)->withQueryString();
+
+        $statusCountsRaw = Order::query()
+            ->selectRaw('status, COUNT(*) as total')
+            ->groupBy('status')
+            ->pluck('total', 'status')
+            ->map(fn ($total): int => (int) $total)
+            ->all();
+        $totalOrdersCount = array_sum($statusCountsRaw);
 
         $orderStats = [
             'pendingCount' => Order::whereIn('status', [
@@ -236,15 +273,20 @@ class OrderController extends Controller
             'netSales' => (float) Order::whereNotIn('status', [
                 Order::STATUS_CANCELLED,
                 Order::STATUS_RETURNED,
+                Order::STATUS_AWAITING_APPROVAL,
             ])->sum('total_amount'),
         ];
 
-        return view('admin.orders.index', compact('orders', 'orderStats'));
+        return view('admin.orders.index', compact(
+            'orders',
+            'orderStats',
+            'statusCountsRaw',
+            'totalOrdersCount',
+            'currentStatus',
+            'search',
+        ));
     }
 
-    /**
-     * Permite ao administrador avançar o status do pedido na máquina de estados ou cancelar.
-     */
     public function updateStatus(
         Request $request,
         Order $order,
@@ -256,6 +298,8 @@ class OrderController extends Controller
         $validated = $request->validate([
             'status' => ['required', 'string'],
             'tracking_code' => ['nullable', 'string', 'max:100'],
+            'carrier' => ['nullable', 'string', 'max:100'],
+            'receiver_name' => ['nullable', 'string', 'max:120'],
             'notes' => ['nullable', 'string', 'max:500'],
         ]);
 
@@ -264,11 +308,11 @@ class OrderController extends Controller
             throw ValidationException::withMessages(['status' => 'Status de pedido inválido.']);
         }
 
-        if ($targetStatus === OrderStatus::DELIVERED) {
+        if ($targetStatus === OrderStatus::Delivered) {
             return $this->markAsDelivered($request, $order, $deliverOrder);
         }
 
-        if ($targetStatus === OrderStatus::CANCELLED) {
+        if ($targetStatus === OrderStatus::Cancelled) {
             return $this->adminCancelOrder($request, $order, $cancelOrder);
         }
 
@@ -282,12 +326,26 @@ class OrderController extends Controller
                 ]);
             }
 
+            $trackingCode = $validated['tracking_code'] ?? $lockedOrder->tracking_code;
+
             $lockedOrder->update([
                 'status' => $targetStatus->value,
-                'tracking_code' => $validated['tracking_code'] ?? $lockedOrder->tracking_code,
+                'tracking_code' => $trackingCode,
             ]);
 
             $lockedOrder->items()->update(['item_status' => $targetStatus->value]);
+
+            if (in_array($targetStatus, [OrderStatus::Separating, OrderStatus::Shipped], true)) {
+                Delivery::updateOrCreate(
+                    ['order_id' => $lockedOrder->id],
+                    [
+                        'status' => $targetStatus === OrderStatus::Shipped ? Delivery::STATUS_IN_TRANSIT : Delivery::STATUS_SCHEDULED,
+                        'carrier' => $validated['carrier'] ?? 'Frota NexoSupri',
+                        'tracking_code' => $trackingCode,
+                        'dispatched_at' => $targetStatus === OrderStatus::Shipped ? now() : null,
+                    ]
+                );
+            }
 
             OrderStatusHistory::create([
                 'order_id' => $lockedOrder->id,
@@ -303,7 +361,8 @@ class OrderController extends Controller
                 $lockedOrder,
                 ['status' => $currentStatus->value],
                 ['status' => $targetStatus->value, 'tracking_code' => $lockedOrder->tracking_code],
-                $request->user()->id
+                $request->user()->id,
+                $lockedOrder->company_id
             );
         });
 
@@ -313,9 +372,6 @@ class OrderController extends Controller
         return back()->with('success', "Status do pedido atualizado para: {$targetStatus->value}.");
     }
 
-    /**
-     * Permite ao administrador cancelar um pedido em aberto com estorno integral.
-     */
     public function adminCancelOrder(Request $request, Order $order, CancelOrderAction $cancelOrder): RedirectResponse
     {
         Gate::authorize('manage', Order::class);
@@ -323,31 +379,32 @@ class OrderController extends Controller
         $cancelOrder->execute(
             $order,
             (int) $request->user()->id,
-            'Cancelado administrativamente com estorno integral.',
+            'Cancelado administrativamente com estorno integral de créditos.',
             customerSelfCancel: false,
         );
 
         Cache::forget('admin_pending_counts');
         $order->user?->notify(new OrderStatusUpdatedNotification($order->fresh(), Order::STATUS_CANCELLED));
 
-        return back()->with('success', 'Pedido cancelado pelo administrador. Saldo estornado e estoque devolvido.');
+        return back()->with('success', 'Pedido cancelado pelo backoffice. Créditos estornados e estoque recomposto.');
     }
 
-    /**
-     * Atualiza o status para "Produto entregue" e credita o cashback uma única vez (idempotente).
-     */
     public function markAsDelivered(Request $request, Order $order, DeliverOrderAction $deliverOrder): RedirectResponse
     {
         Gate::authorize('manage', Order::class);
 
         $validated = $request->validate([
             'tracking_code' => ['nullable', 'string', 'max:100'],
+            'receiver_name' => ['nullable', 'string', 'max:120'],
+            'carrier' => ['nullable', 'string', 'max:100'],
         ]);
 
         $processed = $deliverOrder->execute(
             $order,
             (int) $request->user()->id,
             $validated['tracking_code'] ?? null,
+            $validated['receiver_name'] ?? null,
+            $validated['carrier'] ?? null,
         );
 
         if (! $processed) {
@@ -357,6 +414,6 @@ class OrderController extends Controller
         Cache::forget('admin_pending_counts');
         $order->user?->notify(new OrderStatusUpdatedNotification($order->fresh(), Order::STATUS_DELIVERED));
 
-        return back()->with('success', 'Status atualizado para: Produto entregue. Cashback creditado no cartão do cliente.');
+        return back()->with('success', 'Status atualizado para: Produto entregue e comprovante logístico registrado.');
     }
 }

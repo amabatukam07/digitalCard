@@ -29,10 +29,11 @@ class CatalogApiController extends Controller
         }
 
         if ($search = trim((string) $request->input('q'))) {
-            $escaped = addcslashes($search, '%_\\');
-            $query->where(function ($builder) use ($escaped): void {
-                $builder->whereRaw("name LIKE ? ESCAPE '\\'", ["%{$escaped}%"])
-                    ->orWhereRaw("description LIKE ? ESCAPE '\\'", ["%{$escaped}%"]);
+            $like = '%'.$search.'%';
+            $query->where(function ($builder) use ($like): void {
+                $builder->where('name', 'like', $like)
+                    ->orWhere('description', 'like', $like)
+                    ->orWhere('sku', 'like', $like);
             });
         }
 
@@ -42,10 +43,6 @@ class CatalogApiController extends Controller
 
         if ($request->filled('max_price')) {
             $query->where('price', '<=', (float) $request->input('max_price'));
-        }
-
-        if ($request->boolean('cashback')) {
-            $query->where('cashback_percent', '>', 0);
         }
 
         if ($request->filled('min_rating')) {
@@ -62,7 +59,6 @@ class CatalogApiController extends Controller
             'menor_preco' => $query->orderBy('price')->orderBy('id'),
             'maior_preco' => $query->orderByDesc('price')->orderBy('id'),
             'maior_desconto' => $query->orderByRaw('CASE WHEN compare_at_price > price THEN ((compare_at_price - price) / compare_at_price) ELSE 0 END DESC')->orderBy('id'),
-            'maior_cashback' => $query->orderByDesc('cashback_percent')->orderBy('id'),
             'melhor_avaliados' => $query->orderByDesc('reviews_avg_rating')->orderByDesc('reviews_count')->orderBy('id'),
             default => $query->orderBy('id'),
         };

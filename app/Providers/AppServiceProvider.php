@@ -5,12 +5,14 @@ namespace App\Providers;
 use App\Contracts\PaymentGateway;
 use App\Models\Address;
 use App\Models\Category;
+use App\Models\Company;
 use App\Models\Order;
-use App\Models\Recharge;
+use App\Models\Payment;
 use App\Models\User;
 use App\Policies\AddressPolicy;
+use App\Policies\CompanyPolicy;
 use App\Policies\OrderPolicy;
-use App\Policies\RechargePolicy;
+use App\Policies\PaymentPolicy;
 use App\Services\CartPricing;
 use App\Services\Payment\SimulatedPixGateway;
 use Carbon\Carbon;
@@ -43,9 +45,10 @@ class AppServiceProvider extends ServiceProvider
         Carbon::setLocale(config('app.locale', 'pt_BR'));
 
         Gate::define('admin', fn (User $user): bool => $user->hasAdminAccess());
-        Gate::policy(Recharge::class, RechargePolicy::class);
+        Gate::policy(Payment::class, PaymentPolicy::class);
         Gate::policy(Order::class, OrderPolicy::class);
         Gate::policy(Address::class, AddressPolicy::class);
+        Gate::policy(Company::class, CompanyPolicy::class);
 
         $this->configureRateLimiters();
 
@@ -58,12 +61,16 @@ class AppServiceProvider extends ServiceProvider
         });
 
         if (DB::connection()->getDriverName() === 'sqlite') {
-            DB::statement('PRAGMA foreign_keys = ON;');
-            DB::statement('PRAGMA journal_mode = WAL;');
-            DB::statement('PRAGMA busy_timeout = 5000;');
+            try {
+                DB::statement('PRAGMA foreign_keys = ON;');
+                DB::statement('PRAGMA journal_mode = WAL;');
+                DB::statement('PRAGMA busy_timeout = 5000;');
+            } catch (\Throwable) {
+                // Ignora quando o arquivo SQLite ainda não foi inicializado
+            }
         }
 
-        View::composer(['layouts.app', 'layouts.navigation'], function ($view): void {
+        View::composer(['layouts.app', 'layouts.navigation', 'catalog.*'], function ($view): void {
             $view->with('navCategories', $this->resolveNavCategories());
             $compareIds = array_values(array_unique(array_filter(
                 array_map('intval', session('compare_product_ids', [])),
@@ -71,13 +78,50 @@ class AppServiceProvider extends ServiceProvider
             )));
             $view->with('compareIds', $compareIds);
             $view->with('compareCount', count($compareIds));
+
+            $authId = auth()->id();
+            $currentCompany = null;
+            $currentWallet = null;
+            $currentPlanName = null;
+
+            if ($authId !== null) {
+                $reqAttrs = request()->attributes;
+                $cachedContext = $reqAttrs->get('_nexosupri_view_context');
+
+                if (is_array($cachedContext) && ($cachedContext['user_id'] ?? null) === $authId) {
+                    $currentCompany = $cachedContext['company'];
+                    $currentWallet = $cachedContext['wallet'];
+                    $currentPlanName = $cachedContext['planName'];
+                } else {
+                    try {
+                        $currentCompany = auth()->user()?->primaryCompany();
+                        $currentWallet = $currentCompany?->wallet;
+                        $currentPlanName = $currentCompany?->activeContract()?->plan?->name;
+                    } catch (\Throwable) {
+                        $currentCompany = null;
+                        $currentWallet = null;
+                        $currentPlanName = null;
+                    }
+
+                    $reqAttrs->set('_nexosupri_view_context', [
+                        'user_id' => $authId,
+                        'company' => $currentCompany,
+                        'wallet' => $currentWallet,
+                        'planName' => $currentPlanName,
+                    ]);
+                }
+            }
+
+            $view->with('currentCompany', $currentCompany);
+            $view->with('currentWallet', $currentWallet);
+            $view->with('currentPlanName', $currentPlanName);
         });
 
         View::composer(['layouts.navigation', 'layouts.admin'], function ($view): void {
             $counts = $this->resolveAdminPendingCounts();
 
             $view->with([
-                'adminPendingRechargesCount' => $counts['recharges'],
+                'adminPendingPaymentsCount' => $counts['payments'],
                 'adminPendingOrdersCount' => $counts['orders'],
             ]);
         });
@@ -89,18 +133,15 @@ class AppServiceProvider extends ServiceProvider
 
             $drawerItems = [];
             $drawerTotal = 0.0;
-            $drawerCashback = 0.0;
 
             if (! empty($rawCart)) {
                 try {
                     $summary = app(CartPricing::class)->calculate($rawCart);
                     $drawerTotal = $summary['subtotalAll'];
-                    $drawerCashback = $summary['cashbackTotal'];
                     $drawerItems = array_map(static fn (array $line): array => [
                         'product' => $line['product'],
                         'quantity' => $line['quantity'],
                         'subtotal' => $line['subtotal'],
-                        'cashback' => $line['cashback'],
                     ], $summary['items']);
                 } catch (QueryException) {
                     $drawerItems = [];
@@ -109,15 +150,24 @@ class AppServiceProvider extends ServiceProvider
 
             $unreadNotificationsCount = 0;
             $recentNotifications = collect();
+            $pendingCompanyApprovalsCount = 0;
 
             if (auth()->check()) {
                 try {
                     $authUser = auth()->user();
                     $unreadNotificationsCount = (int) $authUser->unreadNotifications()->count();
                     $recentNotifications = $authUser->notifications()->latest()->limit(5)->get();
-                } catch (QueryException) {
+
+                    $company = $authUser->primaryCompany();
+                    if ($company && $authUser->isCompanyManager($company)) {
+                        $pendingCompanyApprovalsCount = Order::where('company_id', $company->id)
+                            ->where('status', Order::STATUS_AWAITING_APPROVAL)
+                            ->count();
+                    }
+                } catch (\Throwable) {
                     $unreadNotificationsCount = 0;
                     $recentNotifications = collect();
+                    $pendingCompanyApprovalsCount = 0;
                 }
             }
 
@@ -126,9 +176,9 @@ class AppServiceProvider extends ServiceProvider
                 'wishlistCount',
                 'drawerItems',
                 'drawerTotal',
-                'drawerCashback',
                 'unreadNotificationsCount',
                 'recentNotifications',
+                'pendingCompanyApprovalsCount',
             ));
         });
     }
@@ -159,18 +209,12 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(90)->by((string) ($request->user()?->id ?: $request->ip()));
         });
 
-        RateLimiter::for('wallet-transfer', function (Request $request): Limit {
-            return Limit::perMinute(10)->by((string) ($request->user()?->id ?: $request->ip()));
-        });
-
         RateLimiter::for('product-question', function (Request $request): Limit {
             return Limit::perMinute(10)->by((string) ($request->user()?->id ?: $request->ip()));
         });
     }
 
     /**
-     * Armazena APENAS arrays primitivos no cache para total compatibilidade com serializable_classes=false.
-     *
      * @return list<array{id: int, name: string, slug: string, icon: string|null, children: list<array{id: int, name: string, slug: string, icon: string|null}>}>
      */
     private function resolveNavCategories(): array
@@ -207,18 +251,18 @@ class AppServiceProvider extends ServiceProvider
     }
 
     /**
-     * @return array{recharges: int, orders: int}
+     * @return array{payments: int, orders: int}
      */
     private function resolveAdminPendingCounts(): array
     {
         if (! auth()->check() || ! auth()->user()->hasAdminAccess()) {
-            return ['recharges' => 0, 'orders' => 0];
+            return ['payments' => 0, 'orders' => 0];
         }
 
         try {
             $cached = Cache::remember('admin_pending_counts', 60, function (): array {
                 return [
-                    'recharges' => (int) Recharge::where('status', Recharge::STATUS_PENDING)->count(),
+                    'payments' => (int) Payment::where('status', Payment::STATUS_PENDING)->count(),
                     'orders' => (int) Order::whereIn('status', [
                         Order::STATUS_REQUESTED,
                         Order::STATUS_SEPARATING,
@@ -228,11 +272,11 @@ class AppServiceProvider extends ServiceProvider
             });
 
             return [
-                'recharges' => (int) ($cached['recharges'] ?? 0),
+                'payments' => (int) ($cached['payments'] ?? 0),
                 'orders' => (int) ($cached['orders'] ?? 0),
             ];
         } catch (QueryException) {
-            return ['recharges' => 0, 'orders' => 0];
+            return ['payments' => 0, 'orders' => 0];
         }
     }
 }

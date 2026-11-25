@@ -7,7 +7,6 @@ use App\Models\Coupon;
 use App\Models\Product;
 use App\Models\Wishlist;
 use App\Services\CartPricing;
-use App\Services\LoyaltyTierService;
 use App\Services\ShippingCalculator;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -41,7 +40,6 @@ class CartController extends Controller
         $checkoutToken = (string) Str::uuid();
         $request->session()->put('checkout_token', $checkoutToken);
 
-        // Exibe apenas os models Coupon válidos para o usuário e subtotal atual
         $availableCoupons = Coupon::where('is_active', true)
             ->orderBy('code')
             ->get()
@@ -50,12 +48,17 @@ class CartController extends Controller
 
         $placeholderCouponCode = $availableCoupons->first()?->code
             ?? Coupon::where('is_active', true)->orderBy('code')->value('code')
-            ?? 'DIGITAL10';
+            ?? 'NEXO5';
 
-        $loyaltySummary = app(LoyaltyTierService::class)->summaryFor($request->user());
         $shippingQuote = $cep && $summary['subtotal_cents'] > 0
-            ? $shippingCalculator->calculate($cep, max(0, $summary['subtotal_cents'] - $summary['discount_cents']), $loyaltySummary['free_shipping_min_cents'])
+            ? $shippingCalculator->calculate($cep, max(0, $summary['subtotal_cents'] - $summary['discount_cents']))
             : null;
+
+        $company = $request->user()?->primaryCompany();
+        $wallet = $company?->wallet;
+        $membership = $request->user()?->companyMembership($company);
+        $requiresApproval = $company && $membership && ! $membership->isManager()
+            && ($company->require_order_approval || ($membership->spending_limit !== null && $summary['total'] > (float) $membership->spending_limit));
 
         return view('cart.index', [
             'items' => $summary['items'],
@@ -68,9 +71,12 @@ class CartController extends Controller
             'shippingCost' => $summary['shippingCost'],
             'shippingQuote' => $shippingQuote,
             'total' => $summary['total'],
-            'cashbackTotal' => $summary['cashbackTotal'],
+            'creditsRequired' => $summary['credits_required'],
             'priceWarnings' => $summary['price_warnings'],
-            'loyaltySummary' => $loyaltySummary,
+            'company' => $company,
+            'wallet' => $wallet,
+            'membership' => $membership,
+            'requiresApproval' => (bool) $requiresApproval,
             'checkoutToken' => $checkoutToken,
         ]);
     }
@@ -90,7 +96,7 @@ class CartController extends Controller
 
         if ($product->stock < 1) {
             throw ValidationException::withMessages([
-                'quantity' => 'Este produto está sem estoque no momento.',
+                'quantity' => 'Este insumo está sem estoque no momento.',
             ]);
         }
 
@@ -116,7 +122,7 @@ class CartController extends Controller
         }
 
         if ($request->boolean('buy_now')) {
-            return redirect()->route('cart.index')->with('success', "{$product->name} pronto para finalizar a compra!");
+            return redirect()->route('cart.index')->with('success', "{$product->name} pronto para fechar o pedido!");
         }
 
         return back()->with('success', "{$product->name} adicionado ao carrinho.");
@@ -240,7 +246,7 @@ class CartController extends Controller
     {
         $request->session()->forget('cart_coupon');
 
-        return back()->with('success', 'Cupom de desconto removido.');
+        return back()->with('success', 'Cupom removido.');
     }
 
     public static function mergeSessionIntoDatabase(Request $request): void
@@ -252,12 +258,17 @@ class CartController extends Controller
 
         self::syncSessionWithDatabase($request);
 
-        $sessionWishlist = array_map('intval', $request->session()->get('wishlist', []));
-        foreach ($sessionWishlist as $productId) {
-            if (Product::where('id', $productId)->exists()) {
+        $sessionWishlist = array_values(array_unique(array_filter(
+            array_map('intval', $request->session()->get('wishlist', [])),
+            fn (int $id): bool => $id > 0
+        )));
+
+        if ($sessionWishlist !== []) {
+            $validIds = Product::whereIn('id', $sessionWishlist)->pluck('id');
+            foreach ($validIds as $productId) {
                 Wishlist::firstOrCreate([
                     'user_id' => $user->id,
-                    'product_id' => $productId,
+                    'product_id' => (int) $productId,
                 ]);
             }
         }
@@ -275,14 +286,25 @@ class CartController extends Controller
 
         $sessionCart = $request->session()->get('cart', []);
 
+        $sessionProductIds = collect($sessionCart)
+            ->map(fn (array $entry, int|string $productId): int => (int) ($entry['product_id'] ?? $productId))
+            ->filter(fn (int $id): bool => $id > 0)
+            ->unique()
+            ->values();
+
+        $sessionProductsById = $sessionProductIds->isNotEmpty()
+            ? Product::whereIn('id', $sessionProductIds)->get()->keyBy('id')
+            : collect();
+
         foreach ($sessionCart as $productId => $entry) {
             $pid = (int) ($entry['product_id'] ?? $productId);
-            $product = Product::find($pid);
+            /** @var Product|null $product */
+            $product = $sessionProductsById->get($pid);
             if (! $product || ! $product->is_active || $product->stock < 1) {
                 continue;
             }
 
-            $qty = min((int) $entry['quantity'], (int) $product->stock);
+            $qty = min(max(1, (int) $entry['quantity']), (int) $product->stock);
             $snapshot = (float) ($entry['price_snapshot'] ?? $product->price);
 
             CartItem::updateOrCreate(

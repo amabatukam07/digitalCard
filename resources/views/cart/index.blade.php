@@ -1,13 +1,12 @@
-<x-app-layout :metaTitle="'Carrinho de compras'" :metaDescription="'Revise os itens do seu carrinho e finalize sua compra com o saldo do cartão virtual.'">
+<x-app-layout :metaTitle="'Pedido em Montagem'" :metaDescription="'Revise os insumos selecionados e confirme seu pedido utilizando os créditos da empresa na NexoSupri.'">
     @php
         $defaultAddr = auth()->check() ? auth()->user()->addresses()->where('is_default', true)->first() : null;
-        $savedAddress = session('shipping_address') ?: ($defaultAddr ? $defaultAddr->formattedLine() : '');
-        $savedCep = session('shipping_cep') ?: ($defaultAddr->cep ?? '');
-        $card = auth()->check() ? auth()->user()->virtualCard : null;
-        $balance = (float) ($card->balance ?? 0);
-        $hasBalance = $card && $balance >= $total;
+        $savedAddress = session('shipping_address') ?: ($defaultAddr ? $defaultAddr->formattedLine() : ($company?->billing_address ?? ''));
+        $savedCep = session('shipping_cep') ?: ($defaultAddr?->cep ?? $company?->billing_cep ?? '');
+        $balance = (float) ($wallet->balance ?? 0);
+        $hasBalance = $wallet && $balance >= $total;
 
-        $freeShippingMin = (float) ($loyaltySummary['free_shipping_min'] ?? config('digitalcard.free_shipping_min_total', 299.00));
+        $freeShippingMin = (float) config('nexosupri.free_shipping_min_total', 500.00);
         $merchandiseNet = max(0.0, round(($subtotalAll ?? 0) - ($discountAmount ?? 0), 2));
         $missingForFreeShipping = $freeShippingMin <= 0 ? 0.0 : max(0.0, round($freeShippingMin - $merchandiseNet, 2));
         $freeShippingProgress = $freeShippingMin <= 0 ? 100 : min(100, (int) round(($merchandiseNet / $freeShippingMin) * 100));
@@ -16,14 +15,14 @@
     <div class="app-shell py-6 space-y-6">
         <div class="flex flex-col sm:flex-row sm:items-end justify-between gap-4 pb-5 border-b border-line">
             <div>
-                <p class="text-xs font-medium text-slate-500">1 Carrinho — 2 Entrega — 3 Pagamento</p>
-                <h1 class="font-serif text-3xl sm:text-4xl text-ink mt-1">Carrinho de compras</h1>
+                <p class="text-xs font-medium text-slate-500">1 Seleção de insumos — 2 Entrega — 3 Débito / Aprovação em créditos</p>
+                <h1 class="font-serif text-3xl sm:text-4xl text-ink mt-1">Pedido de Abastecimento</h1>
             </div>
 
             <a href="{{ route('catalog.index') }}"
                class="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface hover:border-ink px-4 py-2 text-xs font-medium text-ink transition">
                 <x-icon name="arrow-left" class="size-3.5" />
-                <span>Continuar comprando</span>
+                <span>Continuar selecionando</span>
             </a>
         </div>
 
@@ -38,8 +37,8 @@
 
         @if (empty($items))
             <div class="rounded-lg border border-line bg-surface p-12 text-center space-y-3">
-                <h2 class="font-serif text-2xl text-ink">Seu carrinho está vazio</h2>
-                <p class="mx-auto max-w-sm text-xs text-slate-600">Explore os departamentos da loja e adicione produtos ao seu carrinho.</p>
+                <h2 class="font-serif text-2xl text-ink">Seu pedido está vazio</h2>
+                <p class="mx-auto max-w-sm text-xs text-slate-600">Explore as categorias da NexoSupri e adicione os insumos recorrentes da empresa.</p>
                 <a href="{{ route('catalog.index') }}"
                    class="mt-2 inline-block rounded-md bg-ink hover:bg-slate-800 px-5 py-2.5 text-xs font-medium text-paper transition">
                     Ver catálogo
@@ -53,7 +52,7 @@
                             @if($missingForFreeShipping <= 0)
                                 <p class="font-medium text-money-600 inline-flex items-center gap-1.5">
                                     <x-icon name="check" class="size-3.5" />
-                                    <span>Frete grátis liberado para este pedido</span>
+                                    <span>Frete grátis liberado para este pedido corporativo</span>
                                 </p>
                             @else
                                 <p class="text-slate-700">
@@ -70,13 +69,13 @@
                     <div class="rounded-lg border border-line bg-surface overflow-hidden">
                         <div class="flex items-center justify-between border-b border-line px-5 py-3.5">
                             <h2 class="text-xs font-medium text-slate-600 tabular-nums">
-                                {{ count($items) }} {{ count($items) === 1 ? 'produto selecionado' : 'produtos selecionados' }}
+                                {{ count($items) }} {{ count($items) === 1 ? 'insumo selecionado' : 'insumos selecionados' }}
                             </h2>
                             <form action="{{ route('cart.clear') }}" method="POST">
                                 @csrf
                                 @method('DELETE')
                                 <button type="submit" class="text-xs font-medium text-danger-600 hover:underline">
-                                    Esvaziar carrinho
+                                    Limpar lista
                                 </button>
                             </form>
                         </div>
@@ -91,7 +90,7 @@
                                         </a>
 
                                         <div class="min-w-0 flex-1 space-y-1">
-                                            <span class="text-xs text-slate-500 block">{{ $product->category->name ?? 'Catálogo' }}</span>
+                                            <span class="text-xs text-slate-500 block">{{ $product->category->name ?? 'Catálogo' }} · {{ $product->presentation ?: $product->unit }}</span>
                                             <a href="{{ route('catalog.product', $product->slug) }}"
                                                class="block text-sm font-medium leading-snug text-ink hover:underline line-clamp-2">
                                                 {{ $product->name }}
@@ -100,8 +99,8 @@
                                                 <span class="text-slate-600 tabular-nums">
                                                     Unitário: <strong class="font-mono text-ink">R$ {{ number_format((float) $product->price, 2, ',', '.') }}</strong>
                                                 </span>
-                                                <span class="font-medium text-money-600 tabular-nums">
-                                                    + R$ {{ number_format($item['cashback'], 2, ',', '.') }} de cashback
+                                                <span class="font-mono text-[11px] text-slate-500">
+                                                    {{ number_format($item['subtotal'], 2, ',', '.') }} créditos
                                                 </span>
                                             </div>
                                         </div>
@@ -114,13 +113,13 @@
                                                     @csrf
                                                     @method('PATCH')
                                                     <input type="hidden" name="quantity" value="{{ $item['quantity'] - 1 }}">
-                                                    <button type="submit" aria-label="Diminuir quantidade" class="px-2.5 py-1 text-sm font-medium text-ink hover:bg-surface">−</button>
+                                                    <button type="submit" data-compact-btn aria-label="Diminuir quantidade" class="px-2.5 py-1 text-sm font-medium text-ink hover:bg-surface">−</button>
                                                 </form>
                                             @else
                                                 <form action="{{ route('cart.remove', $product) }}" method="POST">
                                                     @csrf
                                                     @method('DELETE')
-                                                    <button type="submit" aria-label="Remover item" class="px-2.5 py-1 text-sm font-medium text-danger-600 hover:bg-surface">−</button>
+                                                    <button type="submit" data-compact-btn aria-label="Remover item" class="px-2.5 py-1 text-sm font-medium text-danger-600 hover:bg-surface">−</button>
                                                 </form>
                                             @endif
 
@@ -132,17 +131,12 @@
                                                 @csrf
                                                 @method('PATCH')
                                                 <input type="hidden" name="quantity" value="{{ $item['quantity'] + 1 }}">
-                                                <button type="submit" aria-label="Aumentar quantidade" {{ $item['quantity'] >= $product->stock ? 'disabled' : '' }}
+                                                <button type="submit" data-compact-btn aria-label="Aumentar quantidade" {{ $item['quantity'] >= $product->stock ? 'disabled' : '' }}
                                                         class="px-2.5 py-1 text-sm font-medium text-ink hover:bg-surface disabled:cursor-not-allowed disabled:text-slate-400">+</button>
                                             </form>
                                         </div>
 
                                         <div class="text-right min-w-[100px]">
-                                            @if(($item['original_subtotal'] ?? 0) > $item['subtotal'])
-                                                <span class="block text-xs text-slate-500 line-through font-mono tabular-nums">
-                                                    R$ {{ number_format($item['original_subtotal'], 2, ',', '.') }}
-                                                </span>
-                                            @endif
                                             <span class="block font-mono tabular-nums text-sm font-semibold text-ink">
                                                 R$ {{ number_format($item['subtotal'], 2, ',', '.') }}
                                             </span>
@@ -160,7 +154,7 @@
 
                     <div class="bg-surface rounded-lg border border-line p-5 space-y-3">
                         <div class="flex items-center justify-between gap-2">
-                            <h3 class="text-xs font-semibold text-ink">Cupom de desconto</h3>
+                            <h3 class="text-xs font-semibold text-ink">Cupom / Condição comercial</h3>
                             @if(! empty($activeCoupon))
                                 <form action="{{ route('cart.coupon.remove') }}" method="POST">
                                     @csrf
@@ -176,28 +170,12 @@
                             @csrf
                             <label for="coupon_code_input" class="sr-only">Código do cupom</label>
                             <input id="coupon_code_input" type="text" name="coupon_code" value="{{ $activeCoupon ?? '' }}"
-                                   placeholder="Código do cupom"
+                                   placeholder="Código do cupom (ex: {{ $placeholderCouponCode }})"
                                    class="flex-1 rounded-md border-line bg-paper text-xs font-mono py-2 px-3 focus:border-ink focus:ring-ink">
                             <button type="submit" class="border border-line bg-surface hover:border-ink text-ink font-medium text-xs px-4 py-2 rounded-md transition">
                                 Aplicar
                             </button>
                         </form>
-
-                        @if(! empty($availableCoupons) && count($availableCoupons) > 0)
-                            <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-600">
-                                <span>Disponíveis:</span>
-                                @foreach($availableCoupons as $coupon)
-                                    <form action="{{ route('cart.coupon.apply') }}" method="POST" class="inline">
-                                        @csrf
-                                        <input type="hidden" name="coupon_code" value="{{ $coupon->code }}">
-                                        <button type="submit"
-                                                class="font-mono underline hover:text-ink {{ ($activeCoupon ?? '') === $coupon->code ? 'font-semibold text-money-600' : 'text-ink' }}">
-                                            {{ $coupon->code }}
-                                        </button>
-                                    </form>
-                                @endforeach
-                            </div>
-                        @endif
                     </div>
                 </div>
 
@@ -207,7 +185,7 @@
 
                         <div class="space-y-2.5 text-xs">
                             <div class="flex justify-between text-slate-600">
-                                <span>Subtotal</span>
+                                <span>Subtotal dos insumos</span>
                                 <span class="font-mono tabular-nums font-medium text-ink">R$ {{ number_format($subtotalAll ?? $total, 2, ',', '.') }}</span>
                             </div>
 
@@ -229,104 +207,91 @@
                                 @endif
                             </div>
 
-                            <div class="flex justify-between text-money-600 font-medium">
-                                <span>Cashback na entrega</span>
-                                <span class="font-mono tabular-nums">+ R$ {{ number_format($cashbackTotal, 2, ',', '.') }}</span>
-                            </div>
-
-                            @if(isset($loyaltySummary) && (($loyaltySummary['bonus_cashback_percent'] ?? 0) > 0 || ($loyaltySummary['free_shipping_min_cents'] ?? 29900) < 29900))
-                                <div class="rounded-md border border-accent-200 bg-accent-50 px-3 py-2 flex items-center justify-between gap-2 text-[11px] text-accent-950">
-                                    <span class="inline-flex items-center gap-1.5 font-semibold">
-                                        <x-icon name="crown" class="size-3.5 text-accent-600" />
-                                        <span>Clube {{ $loyaltySummary['tier_label'] }} ativo</span>
-                                    </span>
-                                    <span class="font-medium tabular-nums">
-                                        +{{ rtrim(rtrim(number_format((float) $loyaltySummary['bonus_cashback_percent'], 2, ',', '.'), '0'), ',') }}% CB · Frete R$ {{ number_format((float) $loyaltySummary['free_shipping_min'], 0, ',', '.') }}
-                                    </span>
-                                </div>
-                            @endif
-
                             <div class="flex items-baseline justify-between border-t border-line pt-3 text-sm font-semibold text-ink">
-                                <span>Total</span>
-                                <span class="font-mono tabular-nums text-2xl text-ink">R$ {{ number_format($total, 2, ',', '.') }}</span>
+                                <span>Total em R$ / Créditos</span>
+                                <div class="text-right">
+                                    <span class="font-mono tabular-nums text-2xl text-ink block">R$ {{ number_format($total, 2, ',', '.') }}</span>
+                                    <span class="font-mono tabular-nums text-xs text-money-700">{{ number_format($creditsRequired, 2, ',', '.') }} créditos</span>
+                                </div>
                             </div>
                         </div>
 
                         @auth
-                            <div class="border-t border-line pt-3 text-xs space-y-1">
-                                <div class="flex items-center justify-between">
-                                    <span class="text-slate-600">Saldo no cartão:</span>
-                                    <span class="font-mono tabular-nums font-semibold {{ $hasBalance ? 'text-money-600' : 'text-danger-600' }}">
-                                        R$ {{ number_format($balance, 2, ',', '.') }}
-                                    </span>
-                                </div>
-                                @if($hasBalance)
-                                    <div class="flex items-center justify-between text-slate-500">
-                                        <span>Saldo após a compra:</span>
-                                        <span class="font-mono tabular-nums font-medium text-ink">R$ {{ number_format($balance - $total, 2, ',', '.') }}</span>
+                            @if($company && $wallet)
+                                <div class="border-t border-line pt-3 text-xs space-y-1.5">
+                                    <div class="flex items-center justify-between">
+                                        <span class="text-slate-600">Empresa:</span>
+                                        <span class="font-semibold text-ink">{{ $company->trade_name }}</span>
                                     </div>
-                                @else
-                                    <div class="flex items-center justify-between text-danger-600 pt-1">
-                                        <span class="tabular-nums">Faltam R$ {{ number_format($total - $balance, 2, ',', '.') }}</span>
-                                        <a href="{{ route('card.show') }}" class="font-medium underline">Recarregar PIX →</a>
+                                    <div class="flex items-center justify-between">
+                                        <span class="text-slate-600">Saldo em créditos:</span>
+                                        <span class="font-mono tabular-nums font-semibold {{ $hasBalance ? 'text-money-600' : 'text-danger-600' }}">
+                                            {{ number_format($balance, 2, ',', '.') }} créd.
+                                        </span>
                                     </div>
-                                @endif
-                            </div>
+                                    @if($hasBalance)
+                                        <div class="flex items-center justify-between text-slate-500">
+                                            <span>Saldo estimado após débito:</span>
+                                            <span class="font-mono tabular-nums font-medium text-ink">{{ number_format($balance - $total, 2, ',', '.') }} créd.</span>
+                                        </div>
+                                    @else
+                                        <div class="flex items-center justify-between text-danger-600 pt-1">
+                                            <span class="tabular-nums">Faltam {{ number_format($total - $balance, 2, ',', '.') }} créd.</span>
+                                            <a href="{{ route('wallet.show') }}" class="font-medium underline">Contratar créditos →</a>
+                                        </div>
+                                    @endif
 
-                            <form action="{{ route('orders.checkout') }}" method="POST"
-                                  x-data="{
-                                      submitting: false,
-                                      d1: '', d2: '', d3: '', d4: '',
-                                      get fullPin() { return '' + this.d1 + this.d2 + this.d3 + this.d4; },
-                                      stepPin(e, nextRef) {
-                                          if (e.target.value.length === 1 && nextRef) {
-                                              $refs[nextRef].focus();
-                                          }
-                                      }
-                                  }"
-                                  @submit="submitting = true"
-                                  class="space-y-3.5 pt-3 border-t border-line">
-                                @csrf
-                                <input type="hidden" name="idempotency_key" value="{{ $checkoutToken ?? session('checkout_token') }}">
-
-                                <div>
-                                    <label for="checkout_cep" class="mb-1 block text-xs font-medium text-slate-700">CEP de entrega</label>
-                                    <input id="checkout_cep" type="text" name="shipping_cep" value="{{ old('shipping_cep', $savedCep) }}"
-                                           placeholder="00000-000"
-                                           class="block w-full rounded-md border-line bg-paper text-xs font-mono tabular-nums py-2 focus:border-ink focus:ring-ink">
+                                    @if($requiresApproval)
+                                        <div class="rounded-md border border-accent-200 bg-accent-50 p-2.5 text-[11px] text-accent-950 mt-2">
+                                            Este pedido será encaminhado para <strong>aprovação do Gestor da empresa</strong> antes do débito de créditos.
+                                        </div>
+                                    @endif
                                 </div>
 
-                                <div>
-                                    <label for="checkout_address" class="mb-1 block text-xs font-medium text-slate-700">Endereço de entrega</label>
-                                    <input id="checkout_address" type="text" name="shipping_address" value="{{ old('shipping_address', $savedAddress) }}" required
-                                           placeholder="Rua, número, complemento, bairro, cidade - UF"
-                                           class="block w-full rounded-md border-line bg-paper text-xs py-2 focus:border-ink focus:ring-ink">
-                                </div>
+                                <form action="{{ route('orders.checkout') }}" method="POST"
+                                      x-data="{ submitting: false }"
+                                      @submit="submitting = true"
+                                      class="space-y-3.5 pt-3 border-t border-line">
+                                    @csrf
+                                    <input type="hidden" name="idempotency_key" value="{{ $checkoutToken ?? session('checkout_token') }}">
 
-                                <div>
-                                    <label class="mb-1.5 block text-xs font-medium text-slate-700">PIN do cartão (4 dígitos)</label>
-                                    <input type="hidden" name="card_pin" :value="fullPin">
-                                    <div class="grid grid-cols-4 gap-2">
-                                        <input x-ref="p1" x-model="d1" @input="stepPin($event, 'p2')" type="password" inputmode="numeric" maxlength="1" aria-label="Dígito 1 do PIN"
-                                               class="w-full text-center rounded-md border-line bg-paper text-sm font-mono tabular-nums py-2 focus:border-ink focus:ring-ink">
-                                        <input x-ref="p2" x-model="d2" @input="stepPin($event, 'p3')" type="password" inputmode="numeric" maxlength="1" aria-label="Dígito 2 do PIN"
-                                               class="w-full text-center rounded-md border-line bg-paper text-sm font-mono tabular-nums py-2 focus:border-ink focus:ring-ink">
-                                        <input x-ref="p3" x-model="d3" @input="stepPin($event, 'p4')" type="password" inputmode="numeric" maxlength="1" aria-label="Dígito 3 do PIN"
-                                               class="w-full text-center rounded-md border-line bg-paper text-sm font-mono tabular-nums py-2 focus:border-ink focus:ring-ink">
-                                        <input x-ref="p4" x-model="d4" type="password" inputmode="numeric" maxlength="1" aria-label="Dígito 4 do PIN"
-                                               class="w-full text-center rounded-md border-line bg-paper text-sm font-mono tabular-nums py-2 focus:border-ink focus:ring-ink">
+                                    <div>
+                                        <label for="checkout_cep" class="mb-1 block text-xs font-medium text-slate-700">CEP de entrega</label>
+                                        <input id="checkout_cep" type="text" name="shipping_cep" value="{{ old('shipping_cep', $savedCep) }}"
+                                               placeholder="00000-000"
+                                               class="block w-full rounded-md border-line bg-paper text-xs font-mono tabular-nums py-2 focus:border-ink focus:ring-ink">
                                     </div>
-                                </div>
 
-                                <button type="submit"
-                                        :disabled="submitting || {{ (! $hasBalance || ! ($card?->is_active)) ? 'true' : 'false' }}"
-                                        class="w-full rounded-md bg-ink hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-500 disabled:cursor-not-allowed px-4 py-3 text-xs font-medium text-paper transition flex items-center justify-center gap-2">
-                                    <span x-text="submitting ? 'Processando…' : 'Finalizar compra'">Finalizar compra</span>
-                                </button>
-                            </form>
+                                    <div>
+                                        <label for="checkout_address" class="mb-1 block text-xs font-medium text-slate-700">Endereço corporativo de entrega</label>
+                                        <input id="checkout_address" type="text" name="shipping_address" value="{{ old('shipping_address', $savedAddress) }}" required
+                                               placeholder="Rua, número, complemento, bairro, cidade - UF"
+                                               class="block w-full rounded-md border-line bg-paper text-xs py-2 focus:border-ink focus:ring-ink">
+                                    </div>
+
+                                    <div>
+                                        <label for="checkout_department" class="mb-1 block text-xs font-medium text-slate-700">Setor / Centro de custo (opcional)</label>
+                                        <input id="checkout_department" type="text" name="department" value="{{ old('department', $membership?->department) }}"
+                                               placeholder="Ex: Copa, Administrativo, Recepção"
+                                               class="block w-full rounded-md border-line bg-paper text-xs py-2 focus:border-ink focus:ring-ink">
+                                    </div>
+
+                                    <button type="submit"
+                                            :disabled="submitting || {{ (! $hasBalance || ! $wallet->is_active) ? 'true' : 'false' }}"
+                                            class="w-full rounded-md bg-ink hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-500 disabled:cursor-not-allowed px-4 py-3 text-xs font-medium text-paper transition flex items-center justify-center gap-2">
+                                        <span x-text="submitting ? 'Processando…' : '{{ $requiresApproval ? 'Enviar para aprovação do gestor' : 'Confirmar pedido com créditos' }}'">
+                                            {{ $requiresApproval ? 'Enviar para aprovação do gestor' : 'Confirmar pedido com créditos' }}
+                                        </span>
+                                    </button>
+                                </form>
+                            @else
+                                <div class="pt-3 border-t border-line text-center text-xs text-danger-700">
+                                    Sua conta não possui uma empresa vinculada para realizar pedidos.
+                                </div>
+                            @endif
                         @else
                             <div class="pt-3 border-t border-line text-center space-y-2.5">
-                                <p class="text-xs text-slate-600">Entre na sua conta para pagar com o saldo do cartão virtual.</p>
+                                <p class="text-xs text-slate-600">Entre com a conta da sua empresa para confirmar com saldo de créditos.</p>
                                 <a href="{{ route('login') }}" class="block w-full rounded-md bg-ink hover:bg-slate-800 py-2.5 text-xs font-medium text-paper transition">
                                     Entrar para finalizar
                                 </a>
@@ -334,7 +299,7 @@
                         @endauth
 
                         <p class="text-center text-xs text-slate-500 pt-1">
-                            Pagamento protegido por PIN de 4 dígitos com estorno integral em caso de cancelamento.
+                            Modelo A: 1 crédito = R$ 1,00. Estorno integral em créditos em caso de cancelamento.
                         </p>
                     </div>
                 </div>

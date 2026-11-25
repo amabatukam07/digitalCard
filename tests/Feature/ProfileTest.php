@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Company;
 use App\Models\Order;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -81,10 +82,11 @@ class ProfileTest extends TestCase
         $this->assertNull(User::find($user->id));
     }
 
-    public function test_s7_user_cannot_delete_account_with_positive_balance_or_open_order(): void
+    public function test_s7_user_cannot_delete_sole_manager_with_positive_company_balance_or_open_order(): void
     {
-        $user = User::factory()->create();
-        $user->virtualCard->update(['balance' => 50.00]);
+        $company = Company::factory()->create();
+        $company->wallet()->update(['balance' => 150.00]);
+        $user = User::factory()->forCompany($company)->create();
 
         $this->actingAs($user)
             ->from('/profile')
@@ -95,11 +97,18 @@ class ProfileTest extends TestCase
         $this->assertNotNull(User::find($user->id));
 
         // Zera o saldo, mas cria pedido em aberto
-        $user->virtualCard->update(['balance' => 0.00]);
+        $company->wallet()->update(['balance' => 0.00]);
         Order::create([
+            'company_id' => $company->id,
             'user_id' => $user->id,
+            'subtotal_amount' => 100.00,
+            'discount_amount' => 0.00,
+            'shipping_cost' => 0.00,
             'total_amount' => 100.00,
-            'cashback_total' => 2.00,
+            'credits_debited' => 100.00,
+            'total_cost_snapshot' => 60.00,
+            'estimated_das_amount' => 4.00,
+            'estimated_margin_amount' => 36.00,
             'status' => Order::STATUS_REQUESTED,
             'shipping_address' => 'Rua Aberta, 10',
         ]);

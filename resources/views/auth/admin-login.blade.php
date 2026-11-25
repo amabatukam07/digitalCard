@@ -2,9 +2,9 @@
     <div class="space-y-6">
         <div class="border-b border-line pb-4">
             <x-eyebrow>Acesso restrito — Backoffice</x-eyebrow>
-            <h1 class="mt-1 font-serif text-2xl text-ink">Login Administrativo DigitalCard</h1>
+            <h1 class="mt-1 font-serif text-2xl text-ink">Login Administrativo NexoSupri</h1>
             <p class="mt-1 text-xs text-slate-600">
-                Exclusivo para administradores e operadores autorizados da plataforma DigitalCard.
+                Exclusivo para administradores, equipe comercial, compras, financeiro, logística e auditoria da NexoSupri.
             </p>
         </div>
 
@@ -27,11 +27,11 @@
 
             <div class="flex items-center justify-between pt-2">
                 <a href="{{ route('login') }}" class="text-xs font-medium text-slate-600 hover:text-ink underline">
-                    Voltar para login de clientes
+                    Voltar para portal de empresas
                 </a>
 
                 <x-primary-button>
-                    Entrar no Painel Admin
+                    Entrar no Backoffice
                 </x-primary-button>
             </div>
         </form>

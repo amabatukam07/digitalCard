@@ -8,5 +8,5 @@ Artisan::command('inspire', function (): void {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
 
-Schedule::command('digitalcard:expire-pix-charges')->everyFiveMinutes();
-Schedule::command('digitalcard:reconcile-ledgers')->dailyAt('03:00');
+Schedule::command('nexosupri:expire-pix-charges')->everyFiveMinutes();
+Schedule::command('nexosupri:reconcile-ledgers')->dailyAt('03:00');

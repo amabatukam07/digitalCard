@@ -2,7 +2,7 @@
 
 return [
 
-    'name' => env('APP_NAME', 'DigitalCard'),
+    'name' => env('APP_NAME', 'NexoSupri'),
 
     'env' => env('APP_ENV', 'production'),
 

@@ -15,6 +15,16 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->redirectUsersTo(function (Request $request): string {
+            $user = $request->user();
+
+            if ($user?->hasAdminAccess() && $user->primaryCompany() === null) {
+                return route('admin.dashboard');
+            }
+
+            return route('company.dashboard');
+        });
+
         $middleware->web(append: [
             RequestContextMiddleware::class,
             SecurityHeadersMiddleware::class,

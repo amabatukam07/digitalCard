@@ -4,15 +4,16 @@ namespace App\Enums;
 
 enum OrderStatus: string
 {
-    case REQUESTED = 'Produto solicitado';
-    case SEPARATING = 'Em separação';
-    case SHIPPED = 'Enviado';
-    case DELIVERED = 'Produto entregue';
-    case CANCELLED = 'Pedido cancelado';
-    case RETURNED = 'Devolvido (Arrependimento)';
+    case AwaitingApproval = 'Aguardando aprovação';
+    case Requested = 'Produto solicitado';
+    case Separating = 'Em separação';
+    case Shipped = 'Enviado';
+    case Delivered = 'Produto entregue';
+    case Cancelled = 'Pedido cancelado';
+    case Returned = 'Devolvido';
 
     /**
-     * Define as transições de estado permitidas (F4 + S2).
+     * Define as transições permitidas da máquina de estados de pedidos B2B.
      */
     public function canTransitionTo(self $target): bool
     {
@@ -21,33 +22,38 @@ enum OrderStatus: string
         }
 
         return match ($this) {
-            self::REQUESTED => in_array($target, [
-                self::SEPARATING,
-                self::SHIPPED,
-                self::DELIVERED,
-                self::CANCELLED,
+            self::AwaitingApproval => in_array($target, [
+                self::Requested,
+                self::Cancelled,
             ], true),
-            self::SEPARATING => in_array($target, [
-                self::SHIPPED,
-                self::DELIVERED,
-                self::CANCELLED,
+            self::Requested => in_array($target, [
+                self::Separating,
+                self::Shipped,
+                self::Delivered,
+                self::Cancelled,
             ], true),
-            self::SHIPPED => in_array($target, [
-                self::DELIVERED,
+            self::Separating => in_array($target, [
+                self::Shipped,
+                self::Delivered,
+                self::Cancelled,
             ], true),
-            self::DELIVERED => in_array($target, [
-                self::RETURNED,
+            self::Shipped => in_array($target, [
+                self::Delivered,
             ], true),
-            self::CANCELLED, self::RETURNED => false,
+            self::Delivered => in_array($target, [
+                self::Returned,
+            ], true),
+            self::Cancelled, self::Returned => false,
         };
     }
 
     public function isOpen(): bool
     {
         return in_array($this, [
-            self::REQUESTED,
-            self::SEPARATING,
-            self::SHIPPED,
+            self::AwaitingApproval,
+            self::Requested,
+            self::Separating,
+            self::Shipped,
         ], true);
     }
 

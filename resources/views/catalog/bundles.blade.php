@@ -1,14 +1,14 @@
-<x-app-layout :metaTitle="'Kits & Setups Prontos'" :metaDescription="'Combinações completas de escritório, criação de conteúdo, engenharia e mobilidade com cashback acumulado DigitalCard.'">
+<x-app-layout :metaTitle="'Kits de Abastecimento'" :metaDescription="'Combinações recorrentes de copa, café, limpeza e papelaria corporativa NexoSupri.'">
     <div class="app-shell py-8 space-y-8">
         <div class="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b border-line pb-5">
             <div>
-                <x-eyebrow>Curadoria DigitalCard</x-eyebrow>
+                <x-eyebrow>Abastecimento programado</x-eyebrow>
                 <h1 class="mt-1 font-serif text-3xl sm:text-4xl text-ink flex items-center gap-2.5">
                     <x-icon name="layers" class="size-7 text-accent-600 shrink-0" />
-                    <span>Kits &amp; Setups Prontos</span>
+                    <span>Kits de Abastecimento Corporativo</span>
                 </h1>
                 <p class="text-xs sm:text-sm text-slate-600 mt-1 max-w-2xl">
-                    Adicione combinações completas ao carrinho com 1 clique, aproveite cupons recomendados e receba todo o cashback acumulado no seu Cartão Virtual.
+                    Adicione pacotes prontos de reposição recorrente ao carrinho em 1 clique e pague com os créditos da empresa (1 crédito = R$ 1,00).
                 </p>
             </div>
 
@@ -23,7 +23,7 @@
             <div class="rounded-2xl border border-line bg-surface p-12 text-center space-y-3">
                 <h2 class="font-serif text-2xl text-ink">Nenhum kit disponível no momento</h2>
                 <a href="{{ route('catalog.index') }}" class="inline-block rounded-lg bg-ink px-5 py-2.5 text-xs font-semibold text-paper">
-                    Ir para a loja
+                    Ir para o catálogo
                 </a>
             </div>
         @else
@@ -31,7 +31,6 @@
                 @foreach($bundles as $bundle)
                     @php
                         $bundleTotal = $bundle->totalPrice();
-                        $bundleCashback = $bundle->totalCashback();
                         $bundleAvailable = $bundle->isAvailable();
                     @endphp
                     <article class="bg-surface rounded-2xl border border-line p-6 flex flex-col justify-between gap-5 shadow-sm hover:border-slate-300 transition">
@@ -71,7 +70,7 @@
                                                         {{ $bundleItem->quantity }}× {{ $bProd->name }}
                                                     </a>
                                                     <span class="text-[11px] text-slate-500">
-                                                        {{ $bProd->category?->name ?? 'Catálogo' }} · {{ $bProd->stock > 0 ? $bProd->stock.' un. disponíveis' : 'Sem estoque' }}
+                                                        {{ $bProd->presentation ?: $bProd->unit }} · {{ $bProd->stock > 0 ? $bProd->stock.' un. disponíveis' : 'Sem estoque' }}
                                                     </span>
                                                 </div>
                                             </div>
@@ -86,13 +85,13 @@
 
                         <div class="pt-4 border-t border-line flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                             <div>
-                                <span class="text-xs text-slate-500 block">Valor do setup ({{ $bundle->items->count() }} itens)</span>
+                                <span class="text-xs text-slate-500 block">Total do kit ({{ $bundle->items->count() }} itens)</span>
                                 <div class="flex flex-wrap items-baseline gap-2.5 mt-0.5">
                                     <span class="font-mono text-2xl font-bold tabular-nums text-ink">
                                         R$ {{ number_format($bundleTotal, 2, ',', '.') }}
                                     </span>
-                                    <span class="inline-flex items-center gap-1 rounded bg-money-50 border border-money-200 px-2 py-0.5 text-xs font-semibold text-money-700 tabular-nums">
-                                        + R$ {{ number_format($bundleCashback, 2, ',', '.') }} cashback
+                                    <span class="inline-flex items-center rounded bg-paper border border-line px-2 py-0.5 text-xs font-mono font-semibold text-ink tabular-nums">
+                                        {{ number_format($bundleTotal, 2, ',', '.') }} créditos
                                     </span>
                                 </div>
                             </div>
@@ -103,7 +102,7 @@
                                         {{ $bundleAvailable ? '' : 'disabled' }}
                                         class="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-lg bg-ink hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-500 px-5 py-3 text-xs font-semibold text-paper transition">
                                     <x-icon name="shopping-cart" class="size-4" />
-                                    <span>{{ $bundleAvailable ? 'Adicionar kit completo ao carrinho' : 'Kit parcialmente indisponível' }}</span>
+                                    <span>{{ $bundleAvailable ? 'Adicionar kit ao pedido' : 'Kit parcialmente indisponível' }}</span>
                                 </button>
                             </form>
                         </div>

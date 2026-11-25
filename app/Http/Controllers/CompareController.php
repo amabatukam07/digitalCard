@@ -23,7 +23,7 @@ class CompareController extends Controller
             ->values();
 
         $productsById = Product::query()
-            ->with('category')
+            ->with(['category', 'images'])
             ->withAvg('reviews', 'rating')
             ->withCount('reviews')
             ->where('is_active', true)
@@ -38,7 +38,6 @@ class CompareController extends Controller
         }
 
         $lowestPrice = $products->min('price');
-        $highestCashback = $products->max('cashback_percent');
         $highestRating = $products->max(fn (Product $p): float => (float) ($p->reviews_avg_rating ?? 0));
 
         $suggestions = Product::query()
@@ -46,14 +45,13 @@ class CompareController extends Controller
             ->where('is_active', true)
             ->where('stock', '>', 0)
             ->when($products->isNotEmpty(), fn ($q) => $q->whereNotIn('id', $products->pluck('id')))
-            ->orderByDesc('cashback_percent')
+            ->orderBy('price')
             ->limit(4)
             ->get();
 
         return view('catalog.compare', compact(
             'products',
             'lowestPrice',
-            'highestCashback',
             'highestRating',
             'suggestions',
         ));
@@ -78,7 +76,7 @@ class CompareController extends Controller
         }
 
         if (count($ids) >= self::MAX_ITEMS) {
-            return back()->with('error', 'O comparador aceita no máximo '.self::MAX_ITEMS.' produtos por vez. Remova um item para adicionar outro.');
+            return back()->with('error', 'O comparador aceita no máximo '.self::MAX_ITEMS.' itens por vez.');
         }
 
         $ids[] = $product->id;

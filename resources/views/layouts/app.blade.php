@@ -1,15 +1,15 @@
 @props([
     'metaTitle' => null,
-    'metaDescription' => 'DigitalCard — Loja digital com cartão virtual integrado, recarga via PIX e cashback automático na entrega.',
+    'metaDescription' => 'NexoSupri — Plataforma de abastecimento empresarial com créditos pré-pagos. Sua empresa cuida dos negócios. A NexoSupri cuida das compras.',
     'metaImage' => null,
     'noindex' => false,
 ])
 @php
-    $shouldNoIndex = $noindex || request()->routeIs('cart.*', 'card.*', 'orders.*', 'profile.*', 'admin.*', 'login', 'register', 'password.*', 'verification.*');
+    $shouldNoIndex = $noindex || request()->routeIs('cart.*', 'wallet.*', 'company.*', 'orders.*', 'profile.*', 'admin.*', 'login', 'register', 'password.*', 'verification.*');
     $resolvedTitle = $metaTitle
-        ? $metaTitle.' — '.config('app.name', 'DigitalCard')
-        : config('app.name', 'DigitalCard').' — Comércio Eletrônico com Cartão Virtual e Cashback';
-    $resolvedImage = $metaImage ?: asset('images/hero/hero_smartphones.webp');
+        ? $metaTitle.' — '.config('app.name', 'NexoSupri')
+        : config('app.name', 'NexoSupri').' — Abastecimento Empresarial com Créditos Pré-Pagos';
+    $resolvedImage = $metaImage ?: asset('favicon.ico');
 @endphp
 <!DOCTYPE html>
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}" class="h-full bg-paper">
@@ -36,7 +36,7 @@
         @endif
 
         <meta property="og:type" content="website">
-        <meta property="og:site_name" content="DigitalCard">
+        <meta property="og:site_name" content="NexoSupri">
         <meta property="og:title" content="{{ $resolvedTitle }}">
         <meta property="og:description" content="{{ $metaDescription }}">
         <meta property="og:url" content="{{ url()->current() }}">
@@ -76,7 +76,7 @@
             }
         </style>
     </head>
-    <body class="min-h-full flex flex-col font-sans antialiased text-slate-900 bg-paper selection:bg-accent-400 selection:text-slate-950">
+    <body class="min-h-full flex flex-col font-sans antialiased text-slate-900 bg-paper overflow-x-clip selection:bg-accent-400 selection:text-slate-950">
         <a href="#main-content"
            class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-xl focus:bg-slate-950 focus:px-4 focus:py-2.5 focus:text-xs focus:font-bold focus:text-accent-400 focus:shadow-lg">
             Pular para o conteúdo principal
@@ -89,7 +89,7 @@
                  x-cloak
                  role="status"
                  aria-live="polite"
-                 class="fixed bottom-5 right-5 z-50 max-w-md w-full pointer-events-auto px-4 sm:px-0">
+                 class="fixed bottom-4 inset-x-4 sm:inset-x-auto sm:bottom-5 sm:right-5 z-50 sm:max-w-md sm:w-full pointer-events-auto">
                 @if (session('success'))
                     <div class="flex items-start gap-3.5 rounded-lg border border-line bg-ink p-4 text-paper shadow-float">
                         <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-money-600 text-paper" aria-hidden="true">
@@ -157,9 +157,9 @@
                             </span>
                             <div>
                                 <p class="font-semibold text-paper tabular-nums">
-                                    Comparador: {{ $compareCount }}/4 {{ $compareCount === 1 ? 'produto' : 'produtos' }}
+                                    Comparador: {{ $compareCount }}/4 {{ $compareCount === 1 ? 'insumo' : 'insumos' }}
                                 </p>
-                                <p class="text-slate-300 text-[11px]">Compare preços, cashback e avaliações lado a lado.</p>
+                                <p class="text-slate-300 text-[11px]">Compare preços, apresentações e disponibilidade lado a lado.</p>
                             </div>
                         </div>
 
@@ -193,12 +193,12 @@
                     <div class="lg:col-span-2 space-y-4 pr-4">
                         <x-application-logo :dark="true" />
                         <p class="text-xs text-slate-300 leading-relaxed max-w-sm">
-                            Plataforma de compras online com cartão virtual integrado, recarga instantânea via PIX, controle de gastos por PIN e cashback automático na confirmação de entrega.
+                            {{ config('nexosupri.slogan') }} Centralize insumos de escritório, limpeza, higiene, copa e bebidas com créditos pré-pagos exclusivos (Modelo A: 1 crédito = R$ 1,00).
                         </p>
                     </div>
 
                     <div>
-                        <h4 class="text-xs font-bold text-white mb-3.5">Departamentos</h4>
+                        <h4 class="text-xs font-bold text-white mb-3.5">Categorias B2B</h4>
                         <ul class="space-y-2 text-xs text-slate-300">
                             @forelse($navCategories ?? [] as $footerCat)
                                 <li>
@@ -213,51 +213,55 @@
                     </div>
 
                     <div>
-                        <h4 class="text-xs font-bold text-white mb-3.5">Cartão &amp; Conta</h4>
+                        <h4 class="text-xs font-bold text-white mb-3.5">Portal Empresarial</h4>
                         <ul class="space-y-2 text-xs text-slate-300">
+                            <li><a href="{{ route('plans.index') }}" class="hover:text-accent-400 transition">Planos e Benefícios</a></li>
                             @auth
-                                <li><a href="{{ route('card.show') }}" class="hover:text-accent-400 transition">Meu Cartão Virtual</a></li>
-                                <li><a href="{{ route('orders.index') }}" class="hover:text-accent-400 transition">Meus Pedidos</a></li>
-                                <li><a href="{{ route('wishlist.index') }}" class="hover:text-accent-400 transition">Lista de Desejos</a></li>
-                                <li><a href="{{ route('cart.index') }}" class="hover:text-accent-400 transition">Meu Carrinho</a></li>
+                                @if($currentCompany ?? false)
+                                    <li><a href="{{ route('company.dashboard') }}" class="hover:text-accent-400 transition">Painel da Empresa</a></li>
+                                    <li><a href="{{ route('wallet.show') }}" class="hover:text-accent-400 transition">Carteira de Créditos</a></li>
+                                    <li><a href="{{ route('orders.index') }}" class="hover:text-accent-400 transition">Pedidos Corporativos</a></li>
+                                    <li><a href="{{ route('wishlist.index') }}" class="hover:text-accent-400 transition">Itens Homologados</a></li>
+                                @elseif(auth()->user()?->hasAdminAccess())
+                                    <li><a href="{{ route('admin.dashboard') }}" class="hover:text-accent-400 transition">Painel Administrativo</a></li>
+                                    <li><a href="{{ route('admin.payments.index') }}" class="hover:text-accent-400 transition">Pagamentos &amp; Créditos</a></li>
+                                    <li><a href="{{ route('admin.orders.index') }}" class="hover:text-accent-400 transition">Pedidos B2B</a></li>
+                                    <li><a href="{{ route('admin.suppliers.index') }}" class="hover:text-accent-400 transition">Fornecedores &amp; Estoque</a></li>
+                                @endif
                             @else
-                                <li><a href="{{ route('login') }}" class="hover:text-accent-400 transition">Entrar na Minha Conta</a></li>
-                                <li><a href="{{ route('register') }}" class="hover:text-accent-400 transition">Criar Minha Conta</a></li>
-                                <li><a href="{{ route('wishlist.index') }}" class="hover:text-accent-400 transition">Lista de Favoritos</a></li>
+                                <li><a href="{{ route('login') }}" class="hover:text-accent-400 transition">Entrar no Portal</a></li>
+                                <li><a href="{{ route('register') }}" class="hover:text-accent-400 transition">Cadastrar Empresa</a></li>
+                                <li><a href="{{ route('bundles.index') }}" class="hover:text-accent-400 transition">Kits de Abastecimento</a></li>
                             @endauth
                         </ul>
                     </div>
 
                     <div>
-                        <h4 class="text-xs font-bold text-white mb-3.5">Acompanhamento do Pedido</h4>
+                        <h4 class="text-xs font-bold text-white mb-3.5">Fluxo do Pedido (Modelo A)</h4>
                         @php
                             $footerOrderSteps = [
-                                1 => \App\Enums\OrderStatus::REQUESTED,
-                                2 => \App\Enums\OrderStatus::SEPARATING,
-                                3 => \App\Enums\OrderStatus::SHIPPED,
-                                4 => \App\Enums\OrderStatus::DELIVERED,
+                                1 => \App\Enums\OrderStatus::AwaitingApproval,
+                                2 => \App\Enums\OrderStatus::Requested,
+                                3 => \App\Enums\OrderStatus::Separating,
+                                4 => \App\Enums\OrderStatus::Shipped,
+                                5 => \App\Enums\OrderStatus::Delivered,
                             ];
                         @endphp
                         <ul class="space-y-1.5 text-xs text-slate-300">
                             @foreach($footerOrderSteps as $stepNum => $statusCase)
                                 <li class="p-2 rounded-md bg-slate-900 border border-slate-800 flex items-center justify-between">
-                                    <span class="font-medium {{ $statusCase === \App\Enums\OrderStatus::DELIVERED ? 'text-money-400' : 'text-slate-200' }}">
+                                    <span class="font-medium {{ $statusCase === \App\Enums\OrderStatus::Delivered ? 'text-money-400' : 'text-slate-200' }}">
                                         {{ $stepNum }}. {{ $statusCase->label() }}
                                     </span>
                                 </li>
                             @endforeach
-                            <li class="p-2 rounded-md bg-slate-900 border border-danger-900/50 flex items-center justify-between">
-                                <span class="font-medium text-danger-400 inline-flex items-center gap-1">
-                                    <x-icon name="x" class="size-3.5" />
-                                    <span>{{ \App\Enums\OrderStatus::CANCELLED->label() }} (Estorno)</span>
-                                </span>
-                            </li>
                         </ul>
                     </div>
                 </div>
 
                 <div class="pt-6 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-300 gap-4">
-                    <p>© {{ date('Y') }} DigitalCard. Todos os direitos reservados.</p>
+                    <p>© {{ date('Y') }} NexoSupri. Abastecimento empresarial com controle, praticidade e previsibilidade.</p>
+                    <p class="text-[11px] text-slate-400">Modelo A: 1 crédito = R$ 1,00 · Crédito exclusivo sem saque ou transferência.</p>
                 </div>
             </div>
         </footer>

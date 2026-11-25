@@ -12,25 +12,16 @@ use Illuminate\View\View;
 
 class AuthenticatedSessionController extends Controller
 {
-    /**
-     * Exibe a tela de login de clientes.
-     */
     public function create(): View
     {
         return view('auth.login');
     }
 
-    /**
-     * Exibe a tela dedicada de login administrativo (S11).
-     */
     public function createAdmin(): View
     {
         return view('auth.admin-login');
     }
 
-    /**
-     * Autentica o usuário e faz merge do carrinho/favoritos da sessão com o banco (F3).
-     */
     public function store(LoginRequest $request): RedirectResponse
     {
         $request->authenticate(false);
@@ -39,16 +30,9 @@ class AuthenticatedSessionController extends Controller
 
         CartController::mergeSessionIntoDatabase($request);
 
-        if ($request->user()?->hasAdminAccess() && $request->input('user_type') === 'administrador') {
-            return redirect()->intended(route('admin.recharges.index'));
-        }
-
-        return redirect()->intended(route('dashboard', absolute: false));
+        return $this->redirectAfterLogin($request, false);
     }
 
-    /**
-     * Autentica exclusivamente administradores na rota dedicada /admin/login (S11).
-     */
     public function storeAdmin(LoginRequest $request): RedirectResponse
     {
         $request->authenticate(true);
@@ -57,12 +41,69 @@ class AuthenticatedSessionController extends Controller
 
         CartController::mergeSessionIntoDatabase($request);
 
-        return redirect()->intended(route('admin.recharges.index'));
+        return $this->redirectAfterLogin($request, true);
     }
 
-    /**
-     * Encerra a sessão autenticada.
-     */
+    private function redirectAfterLogin(Request $request, bool $preferAdmin): RedirectResponse
+    {
+        $user = $request->user();
+        $isAdmin = (bool) $user?->hasAdminAccess();
+        $default = $isAdmin
+            ? route('admin.dashboard', absolute: false)
+            : route('company.dashboard', absolute: false);
+
+        $intended = $request->session()->pull('url.intended');
+
+        if (! is_string($intended) || $intended === '' || str_starts_with($intended, '//')) {
+            return redirect()->to($default);
+        }
+
+        $host = parse_url($intended, PHP_URL_HOST);
+        if (is_string($host) && $host !== '' && $host !== $request->getHost()) {
+            return redirect()->to($default);
+        }
+
+        $rawPath = (string) parse_url($intended, PHP_URL_PATH);
+        $path = $rawPath === '' ? '/' : '/'.ltrim($rawPath, '/');
+
+        if (in_array($path, ['/login', '/admin/login', '/register'], true)) {
+            return redirect()->to($default);
+        }
+
+        $isAdminPath = $path === '/admin' || str_starts_with($path, '/admin/');
+
+        if ($isAdmin) {
+            if ($preferAdmin && ! $isAdminPath) {
+                return redirect()->to($default);
+            }
+
+            if (! $preferAdmin && $user?->primaryCompany() === null && $this->isClientCompanyOnlyPath($path)) {
+                return redirect()->to($default);
+            }
+
+            return redirect()->to($intended);
+        }
+
+        if ($isAdminPath) {
+            return redirect()->to($default);
+        }
+
+        return redirect()->to($intended);
+    }
+
+    private function isClientCompanyOnlyPath(string $path): bool
+    {
+        return $path === '/dashboard'
+            || $path === '/minha-empresa'
+            || str_starts_with($path, '/minha-empresa/')
+            || $path === '/carteira'
+            || str_starts_with($path, '/carteira/')
+            || $path === '/meu-cartao'
+            || $path === '/meus-pedidos'
+            || str_starts_with($path, '/meus-pedidos/')
+            || $path === '/checkout';
+    }
+
     public function destroy(Request $request): RedirectResponse
     {
         Auth::guard('web')->logout();

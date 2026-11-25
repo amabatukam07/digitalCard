@@ -10,6 +10,7 @@ class AuditLog extends Model
     public $timestamps = false;
 
     protected $fillable = [
+        'company_id',
         'user_id',
         'action',
         'auditable_type',
@@ -30,6 +31,11 @@ class AuditLog extends Model
         ];
     }
 
+    public function company(): BelongsTo
+    {
+        return $this->belongsTo(Company::class);
+    }
+
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
@@ -47,10 +53,12 @@ class AuditLog extends Model
         ?array $oldValues = null,
         ?array $newValues = null,
         ?int $userId = null,
+        ?int $companyId = null,
     ): self {
         $request = request();
 
         return static::create([
+            'company_id' => $companyId,
             'user_id' => $userId ?? $request?->user()?->id,
             'action' => $action,
             'auditable_type' => $auditable->getMorphClass(),

@@ -12,19 +12,25 @@ class OrderItem extends Model
         'product_id',
         'product_name',
         'product_sku',
+        'unit_presentation',
         'quantity',
         'unit_price',
-        'cashback_percent',
+        'unit_cost_snapshot',
+        'das_rate_snapshot',
         'discount_allocated',
         'item_status',
     ];
 
-    protected $casts = [
-        'quantity' => 'integer',
-        'unit_price' => 'decimal:2',
-        'cashback_percent' => 'decimal:2',
-        'discount_allocated' => 'decimal:2',
-    ];
+    protected function casts(): array
+    {
+        return [
+            'quantity' => 'integer',
+            'unit_price' => 'decimal:2',
+            'unit_cost_snapshot' => 'decimal:2',
+            'das_rate_snapshot' => 'decimal:2',
+            'discount_allocated' => 'decimal:2',
+        ];
+    }
 
     public function order(): BelongsTo
     {
@@ -38,6 +44,6 @@ class OrderItem extends Model
 
     public function getDisplayNameAttribute(): string
     {
-        return $this->product_name ?: ($this->product?->name ?? 'Produto do Sistema');
+        return $this->product_name ?: ($this->product?->name ?? 'Item NexoSupri');
     }
 }
